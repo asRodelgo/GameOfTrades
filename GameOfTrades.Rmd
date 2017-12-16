@@ -1,0 +1,1943 @@
+---
+title: "Game Of Trades"
+resource_files:
+- global.R
+- helpers.R
+- shiny_server_helpers.R
+- images/nnet_Defense.png
+- images/nnet_Offense.png
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    theme: flatly
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+
+source("global.R", local = TRUE)
+
+###########################
+# Reactive Values for Trade Market
+values <- reactiveValues(playersAdjMin = NULL, playersDatabase = NULL, playersRanks = NULL, teamsDatabase = NULL, teamsRanks = NULL, teamsStats = NULL, teamsMax = NULL, playersTSNE = NULL, teamsTSNE = NULL, showTradeText = FALSE)
+values$playersAdjMin <- playersPredictedStats_adjMin
+values$playersDatabase <- playerDashboard
+values$playersRanks <- playerRanks
+values$teamsDatabase <- teamDashboard
+values$teamsRanks <- teamRanks
+values$teamsStats <- teamStats
+values$teamsMax <- teamMax
+values$playersTSNE <- tsne_ready
+values$teamsTSNE <- tsne_ready_teams
+###########################
+
+```
+
+Players
+=====================================
+
+Row {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+imageOutput('playerLogo',width = '200px',height='150px')
+tags$style(type='text/css', ".selectize-input { font-size: 80%; line-height: 10px; width: 95%; min-height: 25px; max-height: 30px} .selectize-dropdown { font-size: 80%; line-height: 15px; }")
+selectizeInput("playerName", "Select Player", choices = playerDashboard$Player, selected = playerDashboard$Player[1])
+sliderInput("player_num_clusters", "Number of clusters", min = 2, max = 100, value = 10)
+selectizeInput("player_tsne_color", "Color by", choices = c("K_means","Offense","Defense"), selected = "K_means")
+
+output$playerLogo <- renderImage({
+  filename <- normalizePath(file.path('./images',
+                              paste(tolower(gsub(" ","-",input$playerName)), '.png', sep='')))
+ 
+    # Return a list containing the filename and alt text
+    list(src = filename,
+         width = 200,
+         height = 150,
+         alt = paste("Player: ", input$playerName))
+
+  }, deleteFile = FALSE)
+```
+
+
+Row
+-------------------------------------------------------------------------
+
+### Offense {.value-box}
+```{r}
+
+vOff <- reactive({
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(Offense) %>% as.numeric()
+  data
+})
+
+rOff <- reactive({
+  data <- filter(values$playersRanks, Player == input$playerName) %>%
+    select(Offense) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = formatC(vOff(), digits = 1, format = "f"),
+    caption = paste0("Offense (#",rOff(),")"),
+    icon = "",
+    color = ifelse(rOff() < nrow(values$playersRanks)/3,"green",ifelse(rOff() < nrow(values$playersRanks)*2/3,"lightblue","red"))
+  )
+})
+```
+
+### Defense {.value-box}
+```{r}
+
+vDef <- reactive({
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(Defense) %>% as.numeric()
+  data
+})
+
+rDef <- reactive({
+  data <- filter(values$playersRanks, Player == input$playerName) %>%
+    mutate(Defense = nrow(values$playersRanks)-Defense+1) %>%
+    select(Defense) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = formatC(vDef(), digits = 1, format = "f"),
+    caption = paste0("Defense (#",rDef(),")"),
+    icon = "",
+    color = ifelse(rDef() < nrow(values$playersRanks)/3,"green",ifelse(rDef() < nrow(values$playersRanks)*2/3,"lightblue","red"))
+  )
+})
+```
+
+### Usage Rate {.value-box}
+```{r}
+
+vMin <- reactive({
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(effMin) %>% as.numeric()
+  data
+})
+
+rMin <- reactive({
+  data <- filter(values$playersRanks, Player == input$playerName) %>%
+    select(effMin) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = paste0(formatC(vMin()*1000, digits = 1, format = "f"),"%"),
+    caption = paste0("Usage (#",rMin(),")"),
+    icon = "",
+    color = ifelse(rMin() < nrow(values$playersRanks)/3,"green",ifelse(rMin() < nrow(values$playersRanks)*2/3,"lightblue","red"))
+  )
+})
+```
+
+### Experience {.value-box}
+```{r}
+
+vExp <- reactive({
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(Exp) %>% as.character()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = vExp(),
+    icon = "",
+    color = "lightgrey"
+  )
+})
+```
+
+### Age {.value-box}
+```{r}
+
+vAge <- reactive({
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(Age) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = vAge(),
+    icon = "",
+    color = "lightgrey"
+  )
+})
+```
+
+### Team {.value-box}
+```{r}
+
+vTm <- reactive({
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(Tm) %>% as.character()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = vTm(),
+    icon = "",
+    color = "lightgrey"
+  )
+})
+```
+
+Row {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### Player Stats
+```{r}
+barplotPlayerStats <- reactive({
+
+  off_def <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(Offense, Defense)
+  #data <- filter(playerDashboard, Player == "LeBron James") %>%
+  data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    select(contains("eff"), contains("Per")) %>%
+    gather(Stat, Value)
+    #mutate(Value = ifelse(grepl("Per",Stat), paste0(round(Value*100,1),"%"),
+    #                     ifelse(grepl("Min",Stat), paste0(round(Value*1000,1),"%"),round(Value,2))))
+
+  ranks <- filter(values$playersRanks, Player == input$playerName) %>%
+  #ranks <- filter(playerRanks, Player == "LeBron James") %>%
+    select(contains("eff"), contains("Per")) %>%
+    gather(Stat, Value) %>%
+    mutate(color = ifelse(grepl("TOV|PF",Stat),
+                          ifelse(Value > nrow(values$playersDatabase)/3,"green",
+                                 ifelse(Value > nrow(values$playersDatabase)*2/3,"lightblue","red")),
+                          ifelse(Value < nrow(values$playersDatabase)/3,"green",
+                                 ifelse(Value < nrow(values$playersDatabase)*2/3,"lightblue","red")))) %>%
+    mutate(Rank = Value) %>%
+    select(-Value)
+
+  data <- merge(data,ranks[,c("Stat","Rank","color")],by="Stat") %>%
+    mutate(order = c(8,7,11,10,15,20,17,5,4,2,14,13,23,18,22,1,19,21,16,6,9,3,12)) %>%
+    mutate(Stat = as.factor(Stat)) %>%
+    arrange(order)
+
+  maxs <- select(playerMax, contains("eff"), contains("Per")) %>%
+    gather(Stat, Value) %>%
+    mutate(Stat = as.factor(Stat)) %>%
+    merge(data[,c("Stat","order")],by="Stat") %>%
+    arrange(order)
+
+  data$Stat = factor(data$Stat, levels = data$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
+                     labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF","Usage"))
+
+  maxs$Stat = factor(maxs$Stat, levels = maxs$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
+                     labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF","Usage"))
+
+  ggplot(NULL) +
+    geom_bar(data = data, aes(Stat, Value), stat = "identity", fill=factor(data$color)) +
+    geom_bar(data = maxs, aes(Stat, Value), stat = "identity", fill = "grey", alpha = 0.3) +
+    #coord_flip() +
+    geom_text(data = data, aes(Stat,0.95,label = ifelse(grepl("%",Stat), paste0(round(Value*100,1),"%"),
+                          ifelse(grepl("Usage",Stat), paste0(round(Value*1000,1),"%"),round(Value,2))))) +
+    geom_text(data = data, aes(Stat,.85,label = paste0("(",Rank,")"))) +
+    theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_text(size = 8),
+              #axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+
+})
+
+renderPlot(barplotPlayerStats())
+
+```
+
+### Similar Players
+```{r}
+
+similar <- reactive({
+
+  similarPlayers <- .compare10_click(thisSeason,input$playerName,data=values$playersTSNE) %>%
+  #similarPlayers <- .compare10_click(thisSeason,"Kyrie Irving",data=values$playersTSNE) %>%
+    top_n(11,-dist) %>% tail(10) %>%
+    merge(values$playersDatabase[,c("Player","Offense","Defense","effMin","Age","Tm")], by="Player") %>%
+    mutate(Offense = round(Offense,1), Defense = round(Defense,1),dist = round(dist,2), effMin = paste0(formatC(effMin*1000,digits=1,format="f"),"%")) %>%
+    arrange(dist) %>%
+    select(Player,Team = Tm, Age, Offense, Defense, `Usage Rate` = effMin,`Euclidean dist` = dist)
+
+  datatable(similarPlayers, extensions = 'Scroller', options = list(dom="t", scrollY = 150,scroller = TRUE,initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")
+                                   #, columnDefs = list(list(visible = FALSE, targets = c((ncol(roster)-2):(ncol(roster)-1))))
+                                   )) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%') %>%
+    formatStyle(c('Usage Rate'), textAlign = 'right')
+
+
+})
+
+renderDataTable(similar())
+
+
+```
+
+
+### Similar Players Last 5 Seasons {data-width=350}
+```{r}
+
+similar_hist <- reactive({
+  similarPlayers_Hist <- data.frame()
+  player_seasons <- filter(tsne_ready_hist, Player == input$playerName) %>%
+    arrange(desc(Season)) %>% select(Season) %>% head(5)
+  for (s in player_seasons$Season) {
+    thisSeason <- .compare10_click(s,input$playerName,data=tsne_ready_hist) %>%
+      top_n(11,-dist) %>% tail(10) %>% mutate(player_season = paste0(Player," (",Season,")")) %>% select(player_season)
+    names(thisSeason) <- c(paste0("In Season: ",s))
+    if (nrow(similarPlayers_Hist) > 0) similarPlayers_Hist <- cbind(similarPlayers_Hist,thisSeason) else similarPlayers_Hist <- thisSeason
+  }
+
+  datatable(similarPlayers_Hist, extensions = 'Scroller', options = list(dom="t",scrollY = 150,scroller = TRUE,initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")
+                                   #, columnDefs = list(list(visible = FALSE, targets = c((ncol(roster)-2):(ncol(roster)-1))))
+                                   )) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+
+})
+
+renderDataTable(similar_hist())
+
+
+```
+
+Row {.tabset .tabset-fade}
+---------------------------------------------------
+
+### Player t-SNE map
+```{r}
+tsne_predicted <- reactive({
+
+  set.seed(456)
+  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$player_num_clusters, nstart = 10, iter.max = 20)
+  tsne_ready2 <- cbind(values$playersTSNE, cluster = playerCluster$cluster)
+
+  tsne_points_filter <- filter(tsne_ready2, Player == input$playerName)
+    #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
+    x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
+    y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
+
+  cluster_representative <- group_by(tsne_ready2, cluster) %>%
+    mutate(x_mean = mean(x), y_mean=mean(y)) %>%
+    mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
+    filter(dist==min(dist)) %>%
+    select(cluster, Player,Season, x,y,dist) %>%
+    ungroup()
+
+  if (nrow(tsne_points_filter) > 0) {
+    ggplot(NULL, aes(x,y)) +
+        geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.5) +
+        geom_point(data=tsne_points_filter,color = "red",size=4) +
+      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),color="grey",size=3, nudge_y = 1) +
+        geom_text(data=tsne_points_filter,aes(label = paste0(Player," (",Season,")")),color="blue",size=3, nudge_y = 1) +
+        theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  } else {
+    ggplot(NULL, aes(x,y)) +
+        geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.5) +
+      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
+        theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  }
+
+})
+
+renderPlot(tsne_predicted())
+```
+
+### t-SNE timeline
+```{r}
+
+tsne_historical <- reactive({
+
+  set.seed(456)
+  playerCluster <- kmeans(tsne_ready_hist[, c("x","y")], input$player_num_clusters, nstart = 10, iter.max = 20)
+  tsne_ready_hist2 <- cbind(tsne_ready_hist, cluster = playerCluster$cluster)
+
+  tsne_points_filter <- filter(tsne_ready_hist2, Player == input$playerName)
+    #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
+    x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
+    y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
+
+  cluster_representative <- group_by(tsne_ready_hist2, cluster) %>%
+    mutate(x_mean = mean(x), y_mean=mean(y)) %>%
+    mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
+    filter(dist==min(dist)) %>%
+    select(cluster, Player,Season, x,y,dist) %>%
+    ungroup()
+
+  if (nrow(tsne_points_filter) > 0) {
+    ggplot(NULL, aes(x,y)) +
+        geom_point(data=tsne_ready_hist2,aes(color = as.factor(cluster)),alpha = 0.2) +
+        geom_jitter(data=tsne_points_filter,color = "red",size=4,width = 1.5, height = 1.5) +
+        geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),color = "grey",size=3, nudge_y = 1) +
+        geom_text(data=tsne_points_filter,aes(label = Season),color="blue",size=3, nudge_y = 1) +
+        theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  } else {
+    ggplot(NULL, aes(x,y)) +
+      geom_point(data=tsne_ready_hist2,aes(color = as.factor(cluster)),alpha = 0.2) +
+      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
+      theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  }
+})
+
+renderPlot(tsne_historical())
+
+```
+
+Teams
+=====================================
+
+Row {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+#renderUI(tags$img(src=paste0("https://i.cdn.turner.com/nba/nba/.element/img/4.0/global/logos/512x512/bg.white/svg/",input$teamCode,".svg"),width = '80px',height='80px'))
+# renderUI(tags$img(src=paste0("Users/asanchez3/Desktop/Data Analysis/NBA/images/",input$teamCode,".svg"),width = '80px',height='80px'))
+imageOutput('teamLogo',width = '150px',height='150px')
+tags$style(type='text/css', "display:inline-block; .selectize-input { font-size: 80%; line-height: 10px; width: 65%; min-height: 25px; max-height: 30px} .selectize-dropdown { font-size: 80%; line-height: 15px; }")
+selectizeInput("teamCode", "Select Team", choices = teamDashboard$Tm, selected = teamDashboard$Tm[1])
+sliderInput("num_clusters", "Number of clusters", min = 2, max = 100, value = 10)
+selectizeInput("team_tsne_color", "Color by", choices = c("K_means","Offense","Defense"), selected = "K_means")
+radioButtons("bubble_size", "Balloon size proportional to usage?", c("Yes" = "yes",
+                 "No" = "no"))
+
+output$teamLogo <- renderImage({
+  filename <- normalizePath(file.path('./images',
+                              paste(input$teamCode, '.svg', sep='')))
+ 
+    # Return a list containing the filename and alt text
+    list(src = filename,
+         width = 150,
+         height = 150,
+         alt = paste("Team: ", input$teamCode))
+
+  }, deleteFile = FALSE)
+
+```
+
+
+Row
+-------------------------------------------------------------------------
+
+### Offense {.value-box}
+```{r}
+
+vtOff <- reactive({
+  data <- filter(values$teamsDatabase, Tm == input$teamCode) %>%
+    select(TeamOffense) %>% as.numeric()
+  data
+})
+
+rtOff <- reactive({
+  data <- filter(values$teamsRanks, Tm == input$teamCode) %>%
+    select(TeamOffense) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = formatC(vtOff(), digits = 1, format = "f"),
+    caption = paste0("Offense (#",rtOff(),")"),
+    icon = "",
+    color = ifelse(rtOff() < nrow(values$teamsRanks)/3,"green",ifelse(rtOff() < nrow(values$teamsRanks)*2/3,"lightblue","red"))
+  )
+})
+```
+
+### Defense {.value-box}
+```{r}
+
+vtDef <- reactive({
+  data <- filter(values$teamsDatabase, Tm == input$teamCode) %>%
+    select(TeamDefense) %>% as.numeric()
+  data
+})
+
+rtDef <- reactive({
+  data <- filter(values$teamsRanks, Tm == input$teamCode) %>%
+    mutate(TeamDefense = nrow(values$teamsRanks)-TeamDefense+1) %>%
+    select(TeamDefense) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = formatC(vtDef(), digits = 1, format = "f"),
+    caption = paste0("Defense (#",rtDef(),")"),
+    icon = "",
+    color = ifelse(rtDef() < nrow(values$teamsRanks)/3,"green",ifelse(rtDef() < nrow(values$teamsRanks)*2/3,"lightblue","red"))
+  )
+})
+```
+
+### Wins {.value-box}
+```{r}
+
+vtWins <- reactive({
+  data <- filter(values$teamsDatabase, Tm == input$teamCode) %>%
+    select(wins) %>% as.numeric()
+  data
+})
+
+rtWins <- reactive({
+  data <- filter(values$teamsRanks, Tm == input$teamCode) %>%
+    #mutate(wins = nrow(values$teamsRanks)-wins+1) %>%
+    select(wins) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = formatC(vtWins(), digits = 1, format = "f"),
+    caption = paste0("Wins (#",rtWins(),")"),
+    icon = "",
+    color = ifelse(rtWins() < nrow(values$teamsRanks)/3,"green",ifelse(rtWins() < nrow(values$teamsRanks)*2/3,"lightblue","red"))
+  )
+})
+```
+
+### Age {.value-box}
+```{r}
+
+vtAge <- reactive({
+  data <- filter(values$teamsStats, Tm == input$teamCode) %>%
+    select(Age) %>% as.numeric()
+  data
+})
+
+rtAge <- reactive({
+  data <- filter(values$teamsRanks, Tm == input$teamCode) %>%
+    mutate(Age = nrow(values$teamsRanks)-Age+1) %>%
+    select(Age) %>% as.numeric()
+  data
+})
+
+renderValueBox({
+
+  valueBox(
+    value = formatC(vtAge(), digits = 1, format = "f"),
+    caption = paste0("Age (#",rtAge(),")"),
+    icon = "",
+    color = "lightgrey"
+  )
+})
+```
+
+
+Row {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### Team Stats
+```{r}
+barplotTeamStats <- reactive({
+
+  off_def <- filter(values$teamsDatabase, Tm == input$teamCode) %>%
+    select(TeamOffense, TeamDefense)
+  #data <- filter(teamStats, Tm == "CLE") %>%
+  data <- filter(values$teamsStats, Tm == input$teamCode) %>%
+    select(contains("eff"), contains("Per")) %>%
+    gather(Stat, Value)
+
+  ranks <- filter(values$teamsRanks, Tm == input$teamCode) %>%
+  #ranks <- filter(values$teamsRanks, Tm == "CLE") %>%
+    select(contains("eff"), contains("Per")) %>%
+    gather(Stat, Value) %>%
+    mutate(color = ifelse(grepl("TOV|PF",Stat),
+                          ifelse(Value > nrow(values$teamsDatabase)/3,"green",
+                                 ifelse(Value > nrow(values$teamsDatabase)*2/3,"lightblue","red")),
+                          ifelse(Value < nrow(values$teamsDatabase)/3,"green",
+                                 ifelse(Value < nrow(values$teamsDatabase)*2/3,"lightblue","red")))) %>%
+    mutate(Rank = Value) %>%
+    select(-Value)
+
+  data <- merge(data,ranks[,c("Stat","Rank","color")],by="Stat") %>%
+    mutate(order = c(8,7,11,10,15,20,17,5,4,2,14,13,18,22,1,19,21,16,6,9,3,12)) %>%
+    mutate(Stat = as.factor(Stat)) %>%
+    arrange(order)
+
+  maxs <- select(values$teamsMax, contains("eff"), contains("Per")) %>%
+    gather(Stat, Value) %>%
+    mutate(Stat = as.factor(Stat)) %>%
+    merge(data[,c("Stat","order")],by="Stat") %>%
+    arrange(order)
+
+  data$Stat = factor(data$Stat, levels = data$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
+                     labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF"))
+
+  maxs$Stat = factor(maxs$Stat, levels = maxs$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
+                     labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF"))
+
+  ggplot(NULL) +
+    geom_bar(data = data, aes(Stat, Value), stat = "identity", fill=factor(data$color)) +
+    geom_bar(data = maxs, aes(Stat, Value), stat = "identity", fill = "grey", alpha = 0.3) +
+    #coord_flip() +
+    geom_text(data = data, aes(Stat,0.95,label = ifelse(grepl("%",Stat), paste0(round(Value*100,1),"%"),
+                          ifelse(grepl("Usage",Stat), paste0(round(Value*1000,1),"%"),round(Value,2))))) +
+    geom_text(data = data, aes(Stat,.85,label = paste0("(",Rank,")"))) +
+    theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_text(size = 8),
+              #axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+
+})
+
+renderPlot(barplotTeamStats())
+
+```
+
+### Similar Teams
+```{r}
+
+similarTeams <- reactive({
+
+  if (input$bubble_size == "yes") useEffMin <- TRUE else useEffMin <- FALSE
+  
+  similar_teams <- select(values$teamsTSNE,Tm,x,y) %>%
+    group_by(Tm) %>%
+    mutate(dist = BC_distance(values$playersTSNE,values$playersDatabase,input$teamCode,Tm,input$num_clusters,useEffMin)) %>% arrange(dist) %>% select(-x,-y) %>% top_n(30,-dist) %>% filter(!(Tm == input$teamCode)) %>%
+    merge(values$teamsDatabase[,c("Tm","TeamOffense","TeamDefense","wins")], by="Tm") %>%
+    mutate(Offense = round(TeamOffense,1), Defense = round(TeamDefense,1),wins = round(wins,1),dist = round(dist,5)) %>%
+    arrange(dist) %>%
+    select(Team = Tm, Offense, Defense, wins, `Bhattacharyya dist` = dist)
+  
+  datatable(similar_teams,extensions = c('Scroller'),
+            options = list(dom='t',
+                           pageLength = 30,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 450,
+                           #scrollX = TRUE,
+                           #fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = FALSE) %>%
+    formatRound(c('Offense','Defense'), 2) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+})
+
+renderDataTable(similarTeams())
+
+```
+
+### Roster
+```{r}
+
+roster <- reactive({
+  #roster <- filter(playerDashboard, Tm == "ATL") %>%
+  roster <- filter(values$playersDatabase, Tm == input$teamCode) %>%
+    merge(select(values$playersRanks,Player,rank_Off = Offense,rank_Def = Defense), by="Player") %>%
+    mutate(rank_Def = nrow(values$playersDatabase) - rank_Def - 1) %>%
+    arrange(desc(effMin)) %>%
+    mutate(Usage = paste0(round(effMin*1000,1),"%")) %>%
+    select(Player,Pos,Age,Exp,Offense,Defense,Usage,rank_Off,rank_Def)
+
+  datatable(roster, options = list(dom="t", pageLength = 25,initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")), rownames = FALSE) %>%
+    formatStyle('Offense', valueColumns='rank_Off', color = JS(paste0("value < ",nrow(values$playersRanks)/3," ? 'green' : value < ",nrow(values$playersRanks)*2/3," ? 'lightblue' : 'red'")), fontWeight = 'bold') %>%
+    formatStyle('Defense', valueColumns='rank_Def', color = JS(paste0("value < ",nrow(values$playersRanks)/3," ? 'green' : value < ",nrow(values$playersRanks)*2/3," ? 'lightblue' : 'red'")), fontWeight = 'bold') %>%
+    formatRound(c('Offense','Defense'), 2) %>%
+    formatStyle(c('Exp','Usage'), textAlign = 'right') %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+
+})
+
+renderDataTable(roster())
+
+```
+
+### Team t-SNE map
+```{r}
+tsne_teamPredicted <- reactive({
+
+  set.seed(456)
+  #playerCluster <- kmeans(tsne_ready[, c("x","y")], 13, nstart = 10, iter.max = 20)
+  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$num_clusters, nstart = 10, iter.max = 20)
+  tsne_ready2 <- cbind(values$playersTSNE, K_means = playerCluster$cluster) %>%
+    merge(values$playersDatabase[,c("Player","effMin","Offense","Defense")], by="Player") %>%
+    mutate(Defense = -Defense)
+
+  #tsne_points_filter <- filter(tsne_ready2, Tm == "ATL")
+  tsne_points_filter <- filter(tsne_ready2, Tm == input$teamCode)
+    #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
+    #x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
+    #y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
+
+  cluster_representative <- group_by(tsne_ready2, K_means) %>%
+    mutate(x_mean = mean(x), y_mean=mean(y)) %>%
+    mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
+    filter(dist==min(dist)) %>%
+    select(K_means, Player,Season, x,y,dist) %>%
+    ungroup()
+
+  if (input$bubble_size == "yes") size_balloons <- "effMin*10" else size_balloons <- 5
+
+  if (nrow(tsne_points_filter) > 0) {
+    if (!(input$team_tsne_color == "K_means")) {
+      ggplot(NULL, aes(x,y)) +
+        geom_point(data=tsne_ready2,aes(color = eval(parse(text=input$team_tsne_color))),alpha = 0.6) +
+        geom_point(data=tsne_points_filter,aes(color = eval(parse(text=input$team_tsne_color)), size=eval(parse(text = size_balloons))),alpha = 1) +
+        scale_color_gradient2(midpoint = eval(parse(text = paste0("median(as.numeric(tsne_ready2$",input$team_tsne_color,"))"))), low="red", mid="white",high="green")+
+        geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1, color = 'lightgrey') +
+        geom_text(data=tsne_points_filter,aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1, color = 'blue') +
+        theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+    } else {
+      ggplot(NULL, aes(x,y)) +
+        geom_point(data=tsne_ready2,aes(color = as.factor(K_means)),alpha = 0.6) +
+        geom_point(data=tsne_points_filter,aes(color = as.factor(K_means), size=eval(parse(text = size_balloons))),alpha = 1) +
+        geom_text(data = cluster_representative, aes(label = paste0(Player," (",K_means,")")),size=3, nudge_y = 1, color = 'lightgrey') +
+        geom_text(data=tsne_points_filter,aes(label = paste0(Player," (",K_means,")")),size=3, nudge_y = 1, color = 'blue') +
+        theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+    }
+
+  } else {
+    ggplot(NULL, aes(x,y)) +
+        geom_point(data=tsne_ready2,aes(color = K_means),alpha = 1) +
+        scale_color_gradient2(midpoint = median(tsne_ready2$K_means), low="red", mid="white",high="green")+
+        geom_text(data = cluster_representative, aes(label = paste0(Player," (",K_means,")")),size=3, nudge_y = 1, color = 'lightgrey') +
+        theme(legend.key=element_blank(),
+              legend.title=element_blank(),
+              legend.text = element_blank(),
+              legend.position="none",
+              plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  }
+
+})
+
+renderPlot(tsne_teamPredicted())
+```
+
+### Facet t-SNE maps
+```{r}
+tsne_teamPredicted_facets <- reactive({
+
+  set.seed(456)
+  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$num_clusters, nstart = 10, iter.max = 20)
+  tsne_ready2 <- cbind(values$playersTSNE, cluster = playerCluster$cluster) %>%
+    merge(values$playersDatabase[,c("Player","Tm","effMin","Offense","Defense")], by=c("Player","Tm")) %>%
+    mutate(Defense = -Defense)
+
+  if (input$bubble_size == "yes") size_balloons <- "effMin*10" else size_balloons <- 5
+
+  if (!(input$team_tsne_color == "K_means")) {
+    ggplot(data=tsne_ready2, aes(x,y)) +
+      #geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.2) +
+      geom_point(data=tsne_ready2,aes(color = eval(parse(text=input$team_tsne_color)), size=eval(parse(text = size_balloons)))) +
+      #geom_text(data=tsne_ready2,aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
+      scale_color_gradient2(midpoint = eval(parse(text = paste0("median(as.numeric(tsne_ready2$",input$team_tsne_color,"))"))),low="red",mid="white",high="green") +
+      theme(legend.position = "right", legend.title = element_blank()) +
+      facet_wrap(~Tm) +
+       theme( plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  } else {
+    ggplot(data=tsne_ready2, aes(x,y)) +
+      #geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.2) +
+      geom_point(data=tsne_ready2,aes(color = as.factor(cluster),size=eval(parse(text = size_balloons)))) +
+      #geom_text(data=tsne_ready2,aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
+      theme(legend.position = "right", legend.title = element_blank()) +
+      labs(fill='Usage') +
+      facet_wrap(~Tm) +
+       theme( plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  }
+
+})
+
+renderPlot(tsne_teamPredicted_facets())
+```
+
+### Cluster detail
+```{r}
+cluster_detail <- reactive({
+
+  set.seed(456)
+  #playerCluster <- kmeans(tsne_ready[, c("x","y")], 10, nstart = 10, iter.max = 20)
+  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$num_clusters, nstart = 10, iter.max = 20)
+  
+  cluster_detail <- cbind(values$playersTSNE, cluster = playerCluster$cluster) %>%
+    merge(select(values$playersDatabase, -c(Pos,Season,Exp)), by=c("Player","Tm")) %>%
+    group_by(cluster) %>%
+    summarise_if(is.numeric, mean)
+  
+  cluster_ranks <- mutate_if(cluster_detail,is.numeric, function(x) row_number(desc(x))) %>%
+    mutate(cluster = nrow(cluster_detail)-cluster + 1, Defense = nrow(cluster_detail)-Defense + 1, effTOV = nrow(cluster_detail)-effTOV + 1, effPF = nrow(cluster_detail)-effPF + 1)
+  
+  names(cluster_ranks) <- paste0("rank_",names(cluster_ranks))
+  names(cluster_ranks)[1] <- "cluster"
+  
+  cluster_detail2 <- merge(cluster_detail, cluster_ranks, by = "cluster")
+  
+  datatable(cluster_detail2, extensions = c('Scroller','FixedColumns'), options = list(dom="t",pageLength = nrow(cluster_detail), 
+                           autoWidth = TRUE,
+                           deferRender = TRUE,
+                           scrollY = 200,
+                           scrollX = TRUE,
+                           fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}"), columnDefs = list(list(visible=FALSE, targets=c(32:62)))), rownames = FALSE,escape = FALSE) %>%
+    #formatStyle(c('Defense','effTOV','effPF'), valueColumns=c('rank_Defense','rank_effTOV','rank_effPF'), color = JS(paste0("value < ",nrow(cluster_detail)/3," ? 'red' : value < ",nrow(cluster_detail)*2/3," ? 'lightblue' : 'green'")), fontWeight = 'bold') %>%
+    formatStyle(c(5:32), valueColumns=c(36:63), color = JS(paste0("value < ",nrow(cluster_detail)/3," ? 'green' : value < ",nrow(cluster_detail)*2/3," ? 'lightblue' : 'red'")), fontWeight = 'bold') %>%
+    formatRound(c(2:32), 3) %>%
+    #formatStyle(c('Exp','Usage'), textAlign = 'right') %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+
+  
+})
+
+cluster_color_team <- reactive({
+
+  set.seed(456)
+  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$num_clusters, nstart = 10, iter.max = 20)
+  tsne_ready2 <- cbind(values$playersTSNE, cluster = playerCluster$cluster) %>%
+    merge(values$playersDatabase[,c("Player","Tm","effMin","Offense","Defense")], by=c("Player","Tm")) %>%
+    mutate(Defense = -Defense) %>%
+    filter(Tm == input$teamCode)
+
+  if (input$bubble_size == "yes") size_balloons <- "effMin*10" else size_balloons <- 5
+
+  if (!(input$team_tsne_color == "K_means")) {
+    ggplot(data=tsne_ready2, aes(x,y)) +
+      #geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.2) +
+      geom_point(data=tsne_ready2,aes(color = eval(parse(text=input$team_tsne_color)), size=eval(parse(text = size_balloons)))) +
+      geom_text(data=tsne_ready2,aes(label = Player),size=3, nudge_y = 3) +
+      scale_color_gradient2(midpoint = eval(parse(text = paste0("median(as.numeric(tsne_ready2$",input$team_tsne_color,"))"))),low="red",mid="white",high="green") +
+      theme(legend.position = "right", legend.title = element_blank()) +
+      #facet_wrap(~Tm) +
+       theme( plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  } else {
+    ggplot(data=tsne_ready2, aes(x,y)) +
+      #geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.2) +
+      geom_point(data=tsne_ready2,aes(color = as.factor(cluster),size=eval(parse(text = size_balloons)))) +
+      geom_text(data=tsne_ready2,aes(label = paste0(Player," (",cluster,")")),size=3, nudge_y = 1) +
+      theme(legend.position = "right", legend.title = element_blank()) +
+      #labs(fill='Usage') +
+      #facet_wrap(~Tm) +
+       theme( plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+  }
+
+})
+
+team_cluster_detail <- reactive({
+
+  set.seed(456)
+  #playerCluster <- kmeans(tsne_ready[, c("x","y")], 10, nstart = 10, iter.max = 20)
+  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$num_clusters, nstart = 10, iter.max = 20)
+  
+  cluster_detail <- cbind(values$playersTSNE, cluster = playerCluster$cluster) %>%
+    merge(select(values$playersDatabase, -c(Pos,Season,Exp)), by=c("Player","Tm")) %>%
+    filter(Tm == input$teamCode) %>%
+    mutate(total_players = length(Player), total_min = sum(effMin)) %>%
+    group_by(cluster) %>%
+    mutate(percent = n_distinct(Player)/total_players, percent_usage = sum(effMin)/total_min) %>%
+    distinct(cluster, percent, percent_usage) %>%
+    arrange(cluster)
+  
+  datatable(cluster_detail, extensions = c('Scroller'), options = list(dom="t",pageLength = nrow(cluster_detail), 
+                           #autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 200,
+                           #scrollX = TRUE,
+                           #fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")), rownames = FALSE,escape = FALSE) %>%
+    formatPercentage(c(2,3),digits = 1) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+  
+})
+
+fluidPage(
+  fluidRow(
+    column(8,div(renderPlot(cluster_color_team()),style="height:250px;")),
+    column(4,div(renderDataTable(team_cluster_detail()),style="height:250px;"))
+  ),
+  fluidRow(
+    column(12,renderDataTable(cluster_detail()))
+  )
+)
+
+```
+
+### Team Ranks
+```{r}
+
+allTeams <- reactive({
+  
+  teamRanks2 <- values$teamsRanks
+  teamDashboard2 <- values$teamsDatabase
+  #teamRanks2 <- teamRanks
+  #teamDashboard2 <- teamDashboard
+  
+  names(teamRanks2)[-1] <- paste0("rank_",names(teamRanks2)[-1])
+  names(teamDashboard2)[-1] <- paste0("stat_",names(teamDashboard2)[-1])
+  
+  data <- merge(teamDashboard2,
+                select(teamRanks2,Tm,rank_TeamOffense,rank_TeamDefense,rank_wins), by = "Tm") 
+  
+  data <- select(data, Tm, Offense = stat_TeamOffense, Defense = stat_TeamDefense, wins = stat_wins, starts_with("rank"),-stat_Season) %>%
+    as.data.frame()
+  
+datatable(data, extensions = c('Scroller'), options = list(dom="t",pageLength = nrow(data), 
+                         scrollY = 450,
+                         scroller = TRUE,
+                         initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}"), columnDefs = list(list(visible=FALSE, targets=c(4:6)))), rownames = FALSE) %>%
+  formatStyle(c('Defense'), valueColumns=c('rank_TeamDefense'), color = JS(paste0("value < ",nrow(data)/3," ? 'red' : value < ",nrow(data)*2/3," ? 'lightblue' : 'green'")), fontWeight = 'bold') %>%
+  formatStyle(c(2:4), valueColumns=c(5:7), color = JS(paste0("value < ",nrow(data)/3," ? 'green' : value < ",nrow(data)*2/3," ? 'lightblue' : 'red'")), fontWeight = 'bold') %>%
+  formatRound(c(2:4), 1) %>%
+  formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+  
+})
+
+renderDataTable(allTeams()) 
+```
+
+Season
+=====================================
+
+Row {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+#selectizeInput('regSeasonDay', 'Select a day:', choices=datesRange, selected = datesRange[1])
+dateInput('regSeasonDay', 'Select a day:', min=datesRange[1], max = datesRange[length(datesRange)],startview = 'month')
+
+```
+
+Row {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### Game Probabilities
+```{r}
+games_probs <- reactive({
+  predGames <- .getGameProbability("W",input$regSeasonDay)
+  names(predGames) <- c("Game","Away","Home","Prob. Home team wins")
+  datatable(predGames,extensions = c('Scroller'),
+            options = list(dom='t',
+                           pageLength = 15,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 500,
+                           #scrollX = TRUE,
+                           #fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = TRUE) %>%
+    formatRound(c('Away','Home'), 0) %>%
+    formatRound(c(ncol(predGames)), 2) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+})
+
+# reg season games
+renderDataTable(games_probs())
+```
+
+### Standings
+```{r}
+
+standingsW_table <- reactive({
+  stands <- .getConferenceStandings("W",input$regSeasonDay)
+  
+  datatable(stands,extensions = c('Scroller'),
+            options = list(dom='t',
+                           pageLength = 30,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 250,
+                           #scrollX = TRUE,
+                           #fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = TRUE) %>%
+    #formatRound(c('Offense','Defense'), 2) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+  
+  
+})
+### Standings East
+standingsE_table <- reactive({
+  stands <- .getConferenceStandings("E",input$regSeasonDay)
+  
+  datatable(stands,extensions = c('Scroller'),
+            options = list(dom='t',
+                           pageLength = 30,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 250,
+                           #scrollX = TRUE,
+                           #fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = TRUE) %>%
+    #formatRound(c('Offense','Defense'), 2) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+})
+
+fluidPage(
+  fluidRow(
+    column(12,div(renderDataTable(standingsE_table()),style="height:280px;"))
+  ),
+  fluidRow(
+    column(12,div(renderDataTable(standingsW_table()),style="height:280px;"))
+  )
+)
+
+```
+
+### Probability Matrix
+```{r}
+win_probs <- reactive({
+  stands <- .winProbability_matrix()
+  datatable(stands,extensions = c('Scroller','FixedColumns'),
+            options = list(dom='t',
+                           pageLength = 30,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 550,
+                           scrollX = TRUE,
+                           fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = FALSE) %>%
+    formatRound(c(2:ncol(stands)), 2) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+})
+
+renderDataTable(win_probs())
+
+```
+
+Model
+======================================
+
+Row {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+selectizeInput("nnet", "Select Neural Net", choices = c("Offense","Defense"), selected = "Offense")
+
+selectizeInput("layer", "Select layer:", choices = c(1:3), selected = 1)
+
+```
+
+Row
+----------------------------------------
+
+### Neural Network
+```{r, fig.height=6,fig.width=6}
+
+# Create pdf plots by running these:
+# plot(nn_Defense, arrow.length = .15, col.entry = "red", col.out = "green", fontsize = 9, dimension = 10)
+# plot(nn_Offense, arrow.length = .15, col.entry = "red", col.out = "green", fontsize = 9, dimension = 10)
+# Then open with preview and export as .PNG into images/
+
+selectNNet <- reactive({
+
+  filename <- normalizePath(file.path('./images/',
+                              paste('nnet_', input$nnet, '.png', sep='')))
+  # Return a list containing the filename
+    list(src = filename,
+         width = '100%',
+         height = '100%')
+})
+
+renderImage({
+    selectNNet()
+  }, deleteFile = FALSE)
+
+```
+
+### Weights
+```{r}
+
+table_weight <- reactive({
+  
+  if (input$nnet == "Offense") {
+    model <- nn_Offense
+    load("data/modelNeuralnet5_PTS.Rdata")
+    Off_or_Def <- "PTS"
+  } else {
+     model <- nn_Defense
+     load("data/modelNeuralnet5_PTSA.Rdata")
+     Off_or_Def <- "PTSA"
+  }
+  
+  if (as.numeric(input$layer) == 1) { # first layer
+    #weights <- as.data.frame(model$finalModel$weights[[1]][as.numeric("1")]) %>%
+    weights <- as.data.frame(model$finalModel$weights[[1]][as.numeric(input$layer)]) %>%
+      cbind(`Source neuron` = c("Intercept",model$finalModel$xNames)) %>%
+      select(`Source neuron`, everything())
+  } else {
+    #weights <- as.data.frame(model$finalModel$weights[[1]][as.numeric("2")]) %>%
+    weights <- as.data.frame(model$finalModel$weights[[1]][as.numeric(input$layer)]) %>%
+      cbind(`Source neuron` = c("Intercept",names(as.data.frame(model$finalModel$weights[[1]][as.numeric(input$layer)-1])))) %>%
+      mutate(`Source neuron` = gsub("X","Neuron_",`Source neuron`)) %>%
+      select(`Source neuron`, everything())
+  }
+  names(weights) <- gsub("X","Neuron_",names(weights))
+  
+  datatable(weights,extensions = c('Scroller','FixedColumns'),
+            options = list(dom='t',
+                           pageLength = 15,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 250,
+                           scrollX = TRUE,
+                           fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = FALSE) %>%
+    formatRound(c(2:ncol(weights)), 3) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+
+})
+
+renderDataTable(table_weight())
+
+```
+
+Row
+----------------------------------
+
+### Best Fit
+```{r}
+fitPlot <- reactive({
+  if (input$nnet == "Offense") {
+    model <- nn_Offense
+    load("data/modelNeuralnet5_PTS.Rdata")
+    Off_or_Def <- "PTS"
+  } else {
+     model <- nn_Defense
+     load("data/modelNeuralnet5_PTSA.Rdata")
+     Off_or_Def <- "PTSA"
+  }
+
+  playersSumm <- .prepareModel(Off_or_Def)
+  ## Strip linearly relationed columns: FG, FGA, FG%,3P%,2P%,FT%,effFG%, effPTS
+  playersSumm <- select(playersSumm, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
+  ## End of Strip
+  scaleMaxMin <- .getScaleLimits(Off_or_Def, data = playersSumm)
+  # scale the data [0,1] for easier convergence of backpropagation algorithm
+  maxs <- scaleMaxMin$maxs
+  mins <- scaleMaxMin$mins
+
+  team_season <- playersSumm[,1]
+  scaled <- as.data.frame(scale(playersSumm[,-1], center = mins, scale = maxs - mins))
+  scaled <- cbind(team_season,scaled)
+
+  ###
+  set.seed(456)
+  perc <- 0.75
+  train_split <- round(perc*nrow(playersSumm))
+
+  teams_train <- sample(playersSumm$team_season,train_split)
+  teams_test <- filter(playersSumm, !(team_season %in% teams_train))$team_season
+  training <- filter(scaled, team_season %in% teams_train)
+  testing <- filter(scaled, team_season %in% teams_test)
+
+  # remove non-numeric variables
+  train_teamSeasonCodes <- training$team_season
+  test_teamSeasonCodes <- testing$team_season
+  training <- training[,-1]
+  testing <- testing[,-1]
+
+  # model already trained (loaded as model above)
+  predict_data <- testing
+  predicted <- predict(model, newdata = predict_data)
+  predictions <- data.frame(actual_PTS = predict_data$PTS, predicted_PTS = predicted)
+  plot(predictions)
+
+})
+
+renderPlot(fitPlot())
+
+```
+
+
+### Model
+```{r}
+
+thisModel <- reactive({
+  if (input$nnet == "Offense") load("data/modelNeuralnet5_PTS.Rdata") else load("data/modelNeuralnet5_PTSA.Rdata")
+  datatable(model$results,
+            extensions = c('Scroller','FixedColumns'),
+            options = list(dom='t',
+                           pageLength = nrow(model$results),
+                           autoWidth = TRUE,
+                           deferRender = TRUE,
+                           scrollY = 250,
+                           scrollX = TRUE,
+                           fixedColumns = list(leftColumns = 3),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = FALSE) %>%
+    formatStyle(0, target = 'row', fontSize = '60%', lineHeight = '80%') %>%
+    formatRound(c(4:ncol(model$results)),digits = 3)
+})
+
+renderDataTable(thisModel())
+
+```
+
+<!-- ### Probability Distribution -->
+
+<!-- $\Large{X \sim \mathrm{N}(\hat{\mu}_O,\hat{\sigma})}$ -->
+
+Empirical evidence
+======================================
+
+```{r}
+avg_points <- mutate(gameScores, pts_home = as.numeric(pts_home), pts_away = as.numeric(pts_away)) %>%
+  filter(!is.na(pts_home), !is.na(pts_away))
+
+```
+
+Row {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+sliderInput("pastSeasons", "Select Number of Seasons:", min = 1, max = 20, value = 5)
+
+```
+
+Row
+-------------------------
+
+### Normal Hyperparameters
+$\hat{\sigma}$ = `r round(sigma,2)`
+
+$\hat{\mu}_H$ = `r round(avgHome,2)`
+
+$\hat{\mu}_A$ = `r round(avgAway,2)`
+
+$\hat{\mu}$ = `r round(global_mean,2)`
+
+${HomeAwayFactor = \hat{\mu}_H - \hat{\mu}_A}$ = `r round(home_away_factor,2)`
+
+### Means
+```{r}
+
+ggplot(avg_points) +
+  geom_density(aes(x=pts_home), fill = "lightblue", alpha = .3) +
+  geom_vline(xintercept = avgHome, show.legend = round(avgHome,2), color = "blue") +
+  geom_text(aes(x = avgHome+5,y = -0.005,label = round(avgHome,2))) +
+  geom_density(aes(x=pts_away), fill = "pink", alpha = .3) +
+  geom_vline(xintercept = avgAway, show.legend = round(avgAway,2), color = "red") +
+  geom_text(aes(x = avgAway-5, y = -0.005, label = round(avgAway,2))) +
+  theme( plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              #axis.text.x = element_blank(),
+              axis.text.y = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+
+```
+
+Row
+----------------------
+
+### College to NBA minute reduction by draft pick
+```{r}
+collegePlayersHist <- read.csv("data/collegePlayersHist.csv", stringsAsFactors = FALSE)
+rookiesDraftHist <- read.csv("data/rookiesDraftHist.csv", stringsAsFactors = FALSE)
+# compute % minutes played per player:
+collegeMinutes <- merge(collegePlayersHist,rookiesDraftHist[,c("Player","Pick","Year")], by = "Player") %>%
+  mutate(perMin = MP/(G*40)) %>%
+  group_by(Player) %>%
+  mutate(perMin = mean(perMin, na.rm=TRUE)) %>% # average minutes played per game in ther college years
+  distinct(Player, .keep_all=TRUE) %>%
+  filter(!is.na(perMin))
+# now do the same for NBA players by experience year
+nbaMinutes <- select(playersHist, Player,Season,Age,Tm,G,MP) %>%
+  filter(!(Tm == "TOT")) %>%
+  group_by(Player) %>%
+  filter(Age == min(Age)) %>% # keep players when they were younger (rookie year)
+  group_by(Player,Season) %>%
+  filter(G >= 30) %>% # played at least 30 games
+  mutate(perMin = mean(MP, na.rm=TRUE)/48) %>%
+  distinct(Player, .keep_all=TRUE)
+# put them together
+college2nbaMinutes <- merge(nbaMinutes,collegeMinutes, by = "Player", all.x = TRUE) %>%
+  mutate(minDiff = perMin.y-perMin.x) %>%
+  filter(!is.na(minDiff))
+# see if there is correlation between player Rank and effMin of play from college to NBA
+#plot(college2nbaMinutes$Rk,college2nbaMinutes$minDiff, xlim = c(0,100))
+# no clear pattern so I will use the average for simplification.
+# Although Rank is different from Draft pick. Let's see this by draft pick for the top 30 picks:
+#plot(college2nbaMinutes$Pick,college2nbaMinutes$minDiff)
+draftMinutesInNBA <- arrange(college2nbaMinutes, desc(Pick)) %>%
+  group_by(Pick) %>%
+  summarise(mean(minDiff)) %>%
+  mutate(Pick = as.numeric(Pick)) %>%
+  arrange(Pick)
+
+ggplot(draftMinutesInNBA, aes(Pick, `mean(minDiff)`)) +
+  geom_bar(stat = "identity") +
+  theme( plot.title = element_text(size=9),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              #axis.text.x = element_blank(),
+              #axis.text.y = element_blank(),
+              #axis.title.x = element_blank(),
+              #axis.title.y = element_blank(),
+              axis.ticks = element_blank())
+
+```
+
+### Distribution of play time
+```{r}
+plotDistribTime <- reactive({
+
+  topMinShare <- .minutes_density(playersHist,input$pastSeasons)
+  averageShare <- group_by(topMinShare,Season) %>%
+    summarise_if(is.numeric, mean) %>%
+    ungroup() %>%
+    summarise_if(is.numeric, mean)
+  incrementShare <- gather(averageShare,top_n,percent)
+
+  datatable(incrementShare, extensions = 'Scroller', options = list(dom="t",scrollY = 250,
+                           scroller = TRUE), rownames = FALSE) %>%
+    formatStyle(0, target = 'row', fontSize = '60%', lineHeight = '70%') %>%
+    formatRound(c('percent'), digits = 2)
+
+})
+
+renderDataTable(plotDistribTime())
+
+```
+
+<!-- ### Distribution of play time -->
+<!-- ```{r} -->
+<!-- plotDistribTime <- reactive({ -->
+
+<!--   topMinShare <- .minutes_density(playersHist,input$pastSeasons) -->
+<!--   averageShare <- group_by(topMinShare,Season) %>% -->
+<!--     summarise_if(is.numeric, mean) %>% -->
+<!--     ungroup() %>% -->
+<!--     summarise_if(is.numeric, mean) -->
+<!--   incrementShare <- gather(averageShare,top_n,percent) -->
+
+<!--   plot(seq(18,1,-1),incrementShare$percent, xlab = "top n players", ylab = paste0("Accumulated % time (last ",input$pastSeasons,")")) -->
+
+<!-- }) -->
+
+<!-- renderPlot(plotDistribTime()) -->
+
+<!-- ``` -->
+
+t-SNE explorer
+======================================
+
+Row {.sidebar}
+-----------------------------------------------------------------------
+
+```{r}
+
+sliderInput("tsne_num_clusters", "Number of clusters", min = 2, max = 100, value = 10)
+selectizeInput('colSeason', 'Season:', choices=c("All",seasons_list),selected="All",multiple=TRUE,options = list(maxItems = 10,dropdownParent = 'body'))
+selectizeInput('colTeam', 'Team:', choices=c("All",teams_list),selected="All",multiple=TRUE,options = list(maxItems = 10,dropdownParent = 'body'))
+selectizeInput('colPlayer', 'Player:', choices=c("All",players_list),selected="All",multiple=TRUE,options = list(maxItems = 20,dropdownParent = 'body'))
+selectizeInput('colAge', 'Age:', choices=c("All",ages_list),selected="All",multiple=TRUE,options = list(maxItems = 10,dropdownParent = 'body'))
+
+HTML('<hr style="color: purple;">')
+h4("Color by")
+selectizeInput('colSkill', 'Skill:', choices=c("K-means",skills_list),selected="K-means",multiple=FALSE)
+HTML('<hr style="color: purple;">')
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### t-SNE
+```{r}
+plotOutput('plotTSNE', 
+                  hover = hoverOpts("plot_hover", delay = 100, delayType = "debounce"),
+                  click = clickOpts("plot_click"),
+                  brush = "plot_brush",
+                  dblclick = "plot_dblclick"
+           )
+uiOutput("hover_info")
+uiOutput("click_info")
+
+# server
+# Plot tSNE ---------------------
+# Single zoomable plot (on left)
+ranges <- reactiveValues(x = NULL, y = NULL)
+
+output$plotTSNE <- renderPlot({
+  plotTSNE <- .tSNE_plot_All(data = tsne_ready_hist,input$colTeam,input$colSeason,input$colPlayer,
+                             input$colAge,input$colSkill,input$tsne_num_clusters)
+  if (!is.null(ranges$x)){
+    plotTSNE <- plotTSNE + coord_cartesian(xlim = ranges$x, ylim = ranges$y)
+  } else {
+    plotTSNE <- plotTSNE + coord_cartesian(xlim = ranges$x, ylim = ranges$y)
+  }
+    #Sys.sleep(2)
+  return(plotTSNE)
+})
+# When a double-click happens, check if there's a brush on the plot.
+# If so, zoom to the brush bounds; if not, reset the zoom.
+observeEvent(input$plot_dblclick, {
+  brush <- input$plot_brush
+  if (!is.null(brush)) {
+    ranges$x <- c(brush$xmin, brush$xmax)
+    ranges$y <- c(brush$ymin, brush$ymax)
+    
+  } else {
+    ranges$x <- NULL
+    ranges$y <- NULL
+  }
+})
+
+# When a brush happens, check if there's a brush on the plot.
+# If so, zoom to the brush bounds; if not, do nothing.
+observeEvent(input$plot_brush, {
+  brush <- input$plot_brush
+  if (!is.null(brush)) {
+    ranges$x <- c(brush$xmin, brush$xmax)
+    ranges$y <- c(brush$ymin, brush$ymax)
+    
+  } else {
+    ranges$x <- NULL
+    ranges$y <- NULL
+  }
+})
+
+# tooltip hover over scatterplot points: see https://gitlab.com/snippets/16220
+output$hover_info <- renderUI({
+  hover <- input$plot_hover
+  point <- nearPoints(.tSNE_plot_filter(data = tsne_ready_hist,input$colTeam,input$colSeason,input$colPlayer,
+                                     input$colAge,input$colSkill), hover, threshold = 2, maxpoints = 1, addDist = TRUE)
+  
+  if (nrow(point) == 0) return(NULL)
+  # calculate point position INSIDE the image as percent of total dimensions
+  # from left (horizontal) and from top (vertical)
+  left_pct <- (hover$x - hover$domain$left) / (hover$domain$right - hover$domain$left)
+  top_pct <- (hover$domain$top - hover$y) / (hover$domain$top - hover$domain$bottom)
+  
+  # calculate distance from left and bottom side of the picture in pixels
+  left_px <- hover$range$left + left_pct * (hover$range$right - hover$range$left)
+  top_px <- hover$range$top + top_pct * (hover$range$bottom - hover$range$top)
+  
+  # create style property fot tooltip
+  # background color is set so tooltip is a bit transparent
+  # z-index is set so we are sure are tooltip will be on top
+  style <- paste0("position:absolute; z-index:100; background-color: rgba(245, 245, 245, 0.85); ",
+                  "left:", left_px + 12, "px; top:", top_px + 12, "px;")
+  
+  # actual tooltip created as wellPanel
+  wellPanel(
+    style = style,
+    p(HTML(paste0(point$Player, "<br/>",point$Tm," - ",point$Season, "(Age: ", point$Age,") ", 
+                  "<b> Min: </b>", round(point$effMin,3), 
+                  "<b> Pts: </b>", round(point$effPTS,3),
+                  "<b> Ast: </b>", round(point$effAST,3), 
+                  "<b> ORb: </b>", round(point$effORB,3), 
+                  "<b> DRb: </b>", round(point$effDRB,3), 
+                  "<b> FT%: </b>", round(point$effFTM/point$effFTA,3),
+                  "<b> 3P%: </b>", round(point$eff3PM/point$eff3PA,3),
+                  "<b> Stl: </b>", round(point$effSTL,3),
+                  "<b> Blk: </b>", round(point$effBLK,3),
+                  "<b> Tov: </b>", round(point$effTOV,3),
+                  "<b> PFl: </b>", round(point$effPF,3),
+                  " <br/>"
+                  )))
+  )
+})
+
+# tooltip click over scatterplot points: see https://gitlab.com/snippets/16220
+output$click_info <- renderUI({
+  click <- input$plot_click
+  point <- nearPoints(.tSNE_plot_filter(data = tsne_ready_hist,input$colTeam,input$colSeason,input$colPlayer,
+                                     input$colAge,input$colSkill), click, threshold = 5, maxpoints = 1, addDist = TRUE)
+  
+  #     
+  if (nrow(point) == 0) return(NULL)
+  # calculate top 10 closest Country,Period pairs to the clicked one
+  tableTop10 <- .compare10_click(data = tsne_ready_hist,point$Season,point$Player)
+  # calculate point position INSIDE the image as percent of total dimensions
+  # from left (horizontal) and from top (vertical)
+  left_pct <- (click$x - click$domain$left) / (click$domain$right - click$domain$left)
+  top_pct <- (click$domain$top - click$y) / (click$domain$top - click$domain$bottom)
+  
+  # calculate distance from left and bottom side of the picture in pixels
+  # avoid overlapping with other objects by keeping the tooltip inside the frame
+  if (left_pct > .75){
+    if (top_pct >.75){
+      left_px <- -15*click$range$left + left_pct * (click$range$right - click$range$left)
+      top_px <- click$range$top + top_pct * (click$range$bottom - click$range$top)
+    } else {
+      left_px <- -15*click$range$left + left_pct * (click$range$right - click$range$left)
+      top_px <- click$range$top + top_pct * (click$range$bottom - click$range$top)
+    }
+  } else {
+    
+    if (top_pct >.75){
+      left_px <- click$range$left + left_pct * (click$range$right - click$range$left)
+      top_px <- click$range$top + top_pct * (click$range$bottom - click$range$top)
+    } else{
+      left_px <- click$range$left + left_pct * (click$range$right - click$range$left)
+      top_px <- click$range$top + top_pct * (click$range$bottom - click$range$top)
+    }
+  }
+  # create style property fot tooltip
+  # background color is set so tooltip is a bit transparent
+  # z-index is set so we are sure are tooltip will be on top
+  style <- paste0("position:absolute; z-index:10; background-color: rgba(245, 245, 245, 0.85); ",
+                  "left:", left_px + 2, "px; top:", top_px + 2, "px;")
+  # actual tooltip created as wellPanel
+  panel_input <- paste0('Closest 10 Players (Eucl. dist.) to ',tableTop10$Player[1],' in ',tableTop10$Season[1],'</a><br/><br/>')
+  for (i in 2:11){
+    panel_input <- paste0(panel_input, tableTop10$Player[i],' (',tableTop10$Season[i],') ',round(tableTop10$dist[i],3),'<br/>')
+  }
+  
+  wellPanel(
+    style = style,
+    p(HTML(panel_input))
+  )
+})
+
+```
+
+Trade market
+======================================
+
+Row {.tabset .tabset-fade}
+-----------------------------------------------------------------------
+
+### Trade players
+```{r}
+
+allPlayers <- reactive({
+  
+  #playerRanks <- mutate_if(playerDashboard, is.numeric, function(x) row_number(desc(x)))
+  playerRanks2 <- values$playersRanks
+  playerDashboard2 <- values$playersDatabase
+  names(playerRanks2)[-1] <- paste0("rank_",names(playerRanks2)[-1])
+  names(playerDashboard2)[-1] <- paste0("stat_",names(playerDashboard2)[-1])
+  
+  data <- merge(playerDashboard2,group_by(playerRanks2,Player) %>% select_if(is.numeric) %>% select(-rank_Age), by = "Player") 
+  
+  # if (input$isRank == "Ranks") {
+  #   data <- mutate(data, rank_Defense = nrow(values$playersRanks)-rank_Defense+1, rank_TOV = nrow(values$playersRanks)-rank_TOV+1, rank_PF = nrow(values$playersRanks)-rank_PF+1) %>%
+  #     select(Player,Pos = stat_Pos, Age = stat_Age, Team = stat_Tm, Exp = stat_Exp, rank_Offense, rank_Defense, rank_Usage = rank_effMin, starts_with("rank")) %>%
+  #     as.data.frame()
+  # names(data) <- gsub("rank_","",names(data))
+  # 
+  # datatable(data, extensions = c('Scroller','FixedColumns'), options = list(dom="ft",pageLength = nrow(model$results), 
+  #                          autoWidth = TRUE,
+  #                          deferRender = TRUE,
+  #                          scrollY = 650,
+  #                          scrollX = TRUE,
+  #                          fixedColumns = list(leftColumns = 1),
+  #                          scroller = TRUE,
+  #                          initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")), rownames = FALSE) %>%
+  #   formatStyle(c('Exp'), textAlign = 'right') %>%
+  #   formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+  #   
+  # } else {
+    data <- mutate(data, Usage = paste0(round(stat_effMin*1000,1),"%")) %>%
+      select(Player,Pos = stat_Pos, Age = stat_Age, Team = stat_Tm, Exp = stat_Exp, Offense = stat_Offense, Defense = stat_Defense, Usage, starts_with("stat"), rank_Offense, rank_Defense, rank_effMin, starts_with("rank"), -stat_effMin, -stat_Season) %>%
+      as.data.frame()
+  
+    names(data) <- gsub("stat_","",names(data))
+    
+    # Add the trade buttons  
+    data2 <- as.data.frame(cbind(View = shinyInput(actionButton, 
+                                                     nrow(data),
+                                                     'button_', 
+                                                     label = "Trade", 
+                                                onclick='Shiny.onInputChange(\"select_button\",this.id)', style = 'padding:2px; width:40px; height:20px; font-size:85%'),
+                                 data))
+    
+  datatable(data2, extensions = c('Scroller','FixedColumns'), options = list(dom="ft",pageLength = nrow(model$results), 
+                           autoWidth = TRUE,
+                           deferRender = TRUE,
+                           scrollY = 650,
+                           scrollX = TRUE,
+                           fixedColumns = list(leftColumns = 2),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}"), columnDefs = list(list(visible=FALSE, targets=c(34:61)))), rownames = FALSE,escape = FALSE) %>%
+    formatStyle(c('Defense','effTOV','effPF'), valueColumns=c('rank_Defense','rank_effTOV','rank_effPF'), color = JS(paste0("value < ",nrow(values$playersRanks)/3," ? 'red' : value < ",nrow(values$playersRanks)*2/3," ? 'lightblue' : 'green'")), fontWeight = 'bold') %>%
+    formatStyle(c(7:34), valueColumns=c(35:62), color = JS(paste0("value < ",nrow(values$playersRanks)/3," ? 'green' : value < ",nrow(values$playersRanks)*2/3," ? 'lightblue' : 'red'")), fontWeight = 'bold') %>%
+    formatRound(c(7:8,10:34), 3) %>%
+    formatStyle(c('Exp','Usage'), textAlign = 'right') %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+  
+  #}
+  
+})
+
+renderDataTable(allPlayers()) 
+uiOutput('trade_popup')
+
+observeEvent(input$select_button, {
+  toggleModal(session, "modalTrade", "open")
+  values$showTradeText <- FALSE
+})
+
+SelectedRow <- eventReactive(input$select_button,{
+  as.numeric(strsplit(input$select_button, "_")[[1]][2])
+})
+
+Selected_Player <- eventReactive(input$select_button,{
+  values$playersDatabase[SelectedRow(),1] #column 1 is the group: delivery,agility, .... Column 2 is the indicator: ASA Capacity, Candor Gap, etc...
+})
+
+output$trade_popup <- renderUI({
+  bsModal("modalTrade", paste0(Selected_Player()), "", size = "large",
+          div(
+            selectizeInput("tradeWhere", "Trade this player to:", choices = c("Retire","Adjust minutes","Replace with average player",teamDashboard$Tm), selected = NULL),
+            actionButton("tradeButton", "Make this trade!"),
+            textOutput("textTradeOutcome"),
+            uiOutput('adjustMinutes'),
+            uiOutput('tradedPlayers')
+            )
+  )
+})
+
+observeEvent(input$tradeButton, {
+
+  values$showTradeText <- TRUE
+  
+  isolate({
+    # if traded to a team, assign to targetTeam variable, else, target team is NULL. Same with players
+    if (input$tradeWhere %in% teamDashboard$Tm) {
+      targetTeam <- input$tradeWhere 
+      targetPlayers <- input$tradedPlayers
+    } else {
+      targetTeam <- NULL
+      targetPlayers <- NULL
+    }
+    # make the trade
+    if (input$tradeWhere == "Adjust minutes") { # if only change in minutes of play
+      values$playersAdjMin <- mutate(values$playersAdjMin, effMin = ifelse(Player == Selected_Player(), input$sliderMinutes/3936, effMin))
+    } else { 
+      if (input$tradeWhere=="Replace with average player") { # if actual trade
+        averagePlayer$Tm <- filter(values$playersAdjMin, Player == Selected_Player())$Tm
+        values$playersAdjMin <- bind_rows(values$playersAdjMin, averagePlayer)
+      }
+      values$playersAdjMin <- .trade_Players(data=values$playersAdjMin,playA=Selected_Player(),tmA=NULL, playB=targetPlayers, tmB=targetTeam) %>% arrange(Player)
+    }
+    
+    # update players and teams resulting from trade
+    playersPredictedStats_adjMin2 <- .redistributeMinutes(data = values$playersAdjMin, topHeavy = 7, topMinShare = .6, min_share_top1 = .105)
+    playersPredictedStats_adjMin2 <- mutate(playersPredictedStats_adjMin2,Season = paste0(thisYear,"-",as.numeric(thisYear)+1)) %>% select(-Pick, -Exp) %>% as.data.frame()
+    playersPredictedStats_adjPer <- group_by(playersPredictedStats_adjMin2, Tm) %>% mutate(effMin = effMin/sum(effMin,na.rm=TRUE)) %>% as.data.frame()
+
+    #source("code_chunks/source_computeOffenseDefense.R",local=TRUE)
+    # compute teams and players Offense and Defense
+    playersNewPredicted_Final_adjMinPer2 <- select(playersPredictedStats_adjPer, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
+    playersNewPredicted_OffDef <- mutate(playersNewPredicted_Final_adjMinPer2, Tm = Player, effMin = 1)
+    playersPredicted <- .teamsPredictedPower(data = playersNewPredicted_OffDef,actualOrPred="predicted",maxs_vector = maxs_vector_input,
+                                       mins_vector = mins_vector_input) %>%
+      mutate(Player = substr(team_season,1,regexpr("_",team_season)-1),plusMinus = TEAM_PTS-TEAM_PTSAG) %>%
+      select(Player,Offense = TEAM_PTS, Defense = TEAM_PTSAG, plusMinus) %>%
+      as.data.frame()
+
+    playersPredicted2 <- merge(playersPredicted,values$playersAdjMin[,c("Player","Exp","Age","Tm","effMin")], by ="Player") %>% mutate(adjPlusMinus = plusMinus*effMin*100) %>% group_by(Tm) %>% mutate(teamPlusMinus = sum(adjPlusMinus,na.rm=TRUE)) %>% ungroup()
+
+    values$playersDatabase <- merge(playersPredictedStats_adjPer,select(playersPredicted2, -c(Age,Tm,effMin)), by = "Player")
+    
+    values$playersRanks <- mutate_if(values$playersDatabase, is.numeric, function(x) row_number(desc(x)))
+    playerMax <- summarise_if(values$playersDatabase, is.numeric, max)
+    playerMin <- group_by(values$playersDatabase, Player) %>% summarise_if(is.numeric, min)
+
+    #source("code_chunks/source_predictedPowersWins.R",local=TRUE)
+    teamsPredicted <- .teamsPredictedPower(data = playersNewPredicted_Final_adjMinPer2, actualOrPred="predicted",maxs_vector = maxs_vector_input,
+                                       mins_vector = mins_vector_input)
+    win_predictions <- .teamsPredictedWins(data = teamsPredicted) 
+
+    values$teamsDatabase <- merge(teamsPredicted, win_predictions, by.x = "TeamCode", by.y = "team") %>%
+      select(Tm = TeamCode, TeamOffense = TEAM_PTS, TeamDefense = TEAM_PTSAG, Season, wins)
+    values$teamsRanks <- mutate_if(values$teamsDatabase, is.numeric, function(x) row_number(desc(x)))
+    
+    values$teamsStats <- .computeTeamStats(data = playersPredictedStats_adjPer)
+    teamStatRanks <- mutate_if(values$teamsStats, is.numeric, function(x) row_number(desc(x)))
+    values$teamsRanks <- merge(teamStatRanks, select(values$teamsRanks,-Season),by="Tm")
+    values$teamsMax <- summarise_if(values$teamsStats, is.numeric, max)
+    
+    # update t_SNEs
+    values$playersTSNE <- .compute_tSNE_ready_players(data = values$playersAdjMin) %>% as.data.frame()
+    values$teamsTSNE <- .compute_tSNE_ready_teams(data = playersPredictedStats_adjPer) %>% as.data.frame()
+    
+    # A text informing of trade outcome
+    output$textTradeOutcome <- renderText({
+      if (values$showTradeText) {
+        return(paste0(Selected_Player()," successfully traded to ",input$tradeWhere,". Please close this window to continue on the application"))
+      } else {
+        return()
+      }
+    })
+    
+    # update player dashboard selector
+    updateSelectizeInput(session, "playerName", "Select Player", choices = select(values$playersDatabase,Player)$Player, selected = select(values$playersDatabase,Player)$Player[1])
+    
+  })
+
+})
+
+# observe adjust minutes of play
+observeEvent(input$tradeWhere, {
+  
+  output$adjustMinutes <- renderUI({
+    if (input$tradeWhere == "Adjust minutes") {
+      #renderPrint(paste0("Est. minutes per game: ",round(filter(values$playersDatabase, Player == Selected_Player())$effMin*3936,1)))
+      sliderInput('sliderMinutes',paste0('Current minutes: ',round(filter(values$playersAdjMin, Player == Selected_Player())$effMin*3936,1),'. Adjust minutes: '), min = 0, max = 48, value = round(filter(values$playersAdjMin, Player == Selected_Player())$effMin*3936,1))
+    } else if (input$tradeWhere %in% teamDashboard$Tm) { # select players to trade for from target team
+      checkboxGroupInput('tradedPlayers','Players to trade for:',choices = filter(values$playersAdjMin, Tm == input$tradeWhere)$Player,selected = NULL)
+    } else return()
+    
+  })
+  
+})
+
+```
+
+### Create your own player
+```{r}
+fluidPage(
+  fluidRow(
+    column(4,textInput("create_name","Player name",width = '100%')),
+    column(1,selectizeInput("create_position","Pos",choices = unique(playerDashboard$Pos),selected = NULL,width = '100%')),
+    column(2,selectizeInput("create_team","Team",choices = unique(playerDashboard$Tm),selected = NULL,width = '80%')),
+    column(1,selectizeInput("create_exp","Exp",choices = unique(playerDashboard$Exp),selected = "R",width = '100%')),
+    column(2, sliderInput("create_age","Age",min = playerMin$Age, max = playerMax$Age,value = averagePlayer$Age)),
+    column(2, sliderInput("create_min","Usage", min = 0, max = 48, value = round(mean(playersPredictedStats_adjMin$effMin)*3936,1)))
+    #column(2, sliderInput("create_min","Usage",min = min(playersPredictedStats_adjMin$effMin), max = max(playersPredictedStats_adjMin$effMin),value = mean(playersPredictedStats_adjMin$effMin)))
+  ),
+  fluidRow(
+    column(3, sliderInput("create_2PA","2 Point Attempt",min = playerMin$eff2PA, max = playerMax$eff2PA,value = averagePlayer$eff2PA,round = -2)),
+    column(3, sliderInput("create_2PM","2 Point Made",min = playerMin$eff2PM, max = playerMax$eff2PM,value = averagePlayer$eff2PM,round = -2)),
+    column(3, sliderInput("create_3PA","3 Point Attempt",min = playerMin$eff3PA, max = playerMax$eff3PA,value = averagePlayer$eff3PA,round = -2)),
+    column(3, sliderInput("create_3PM","3 Point Made",min = playerMin$eff3PM, max = playerMax$eff3PM,value = averagePlayer$eff3PM,round = -2))
+  ),
+  fluidRow(
+    column(3, sliderInput("create_FTA","FT Attempt",min = playerMin$effFTA, max = playerMax$effFTA,value = averagePlayer$effFTA,round = -2)),
+    column(3, sliderInput("create_FTM","FT Made",min = playerMin$effFTM, max = playerMax$effFTM,value = averagePlayer$effFTM,round = -2)),
+    column(3, sliderInput("create_ORB","Offensive Rebounds",min = playerMin$effORB, max = playerMax$effORB,value = averagePlayer$effORB,round = -2)),
+    column(3, sliderInput("create_DRB","Defensive Rebounds",min = playerMin$effDRB, max = playerMax$effDRB,value = averagePlayer$effDRB,round = -2))
+  ),
+  fluidRow(
+    column(2, sliderInput("create_AST","Assists",min = playerMin$effAST, max = playerMax$effAST,value = averagePlayer$effAST,round = -2)),
+    column(2, sliderInput("create_BLK","Blocks",min = playerMin$effBLK, max = playerMax$effBLK,value = averagePlayer$effBLK,round = -2)),
+    column(2, sliderInput("create_STL","Steals",min = playerMin$effSTL, max = playerMax$effSTL,value = averagePlayer$effSTL,round = -2)),
+    column(3, sliderInput("create_TOV","Turnovers",min = playerMin$effTOV, max = playerMax$effTOV,value = averagePlayer$effTOV,round = -2)),
+    column(3, sliderInput("create_PF","Personal Fouls",min = playerMin$effPF, max = playerMax$effPF,value = averagePlayer$effPF,round = -2))
+  ),
+  fluidRow(
+    column(3, actionButton("createPlayerButton","Create Player")),
+    column(9, dataTableOutput('newPlayer_stats'))
+  )
+)
+
+observeEvent(input$createPlayerButton,{
+  
+  isolate({
+    
+     newPlayer <- data.frame(Player = as.character(input$create_name), Pos = as.character(input$create_position), Season = thisSeason, Age = input$create_age, Tm = as.character(input$create_team), Exp = as.character(input$create_exp), 
+    FGPer= (input$create_2PM+input$create_3PM)/(input$create_2PA+input$create_3PA), FG3Per=input$create_3PM/input$create_3PA, FG2Per=input$create_2PM/input$create_2PA, effFGPer=(2*input$create_2PM+3*input$create_3PM)/(2*input$create_2PA+2*input$create_3PA),FTPer=input$create_FTM/input$create_FTA,
+    effMin=input$create_min/3936,
+    effFG=input$create_2PM+input$create_3PM,effFGA=input$create_2PA+input$create_3PA,eff3PM=input$create_3PM,eff3PA=input$create_3PA,eff2PM=input$create_2PM,eff2PA=input$create_2PA,effFTM=input$create_FTM,effFTA=input$create_FTA,effORB=input$create_ORB,effDRB=input$create_DRB,effTRB=input$create_ORB+input$create_DRB,effAST=input$create_AST,effSTL=input$create_STL,effBLK=input$create_BLK,effTOV=input$create_TOV,effPF=input$create_PF,effPTS=2*input$create_2PM+3*input$create_3PM+input$create_FTM,Pick=0, 
+    stringsAsFactors = FALSE)
+    
+    values$playersAdjMin <- bind_rows(values$playersAdjMin, newPlayer)
+
+    # update players and teams resulting from trade
+    playersPredictedStats_adjMin2 <- .redistributeMinutes(data = values$playersAdjMin, topHeavy = 7, topMinShare = .6, min_share_top1 = .105)
+    playersPredictedStats_adjMin2 <- mutate(playersPredictedStats_adjMin2,Season = paste0(thisYear,"-",as.numeric(thisYear)+1)) %>% select(-Pick, -Exp) %>% as.data.frame()
+    playersPredictedStats_adjPer <- group_by(playersPredictedStats_adjMin2, Tm) %>% mutate(effMin = effMin/sum(effMin,na.rm=TRUE)) %>% as.data.frame()
+    
+    #source("code_chunks/source_computeOffenseDefense.R",local=TRUE)
+    # compute teams and players Offense and Defense
+playersNewPredicted_Final_adjMinPer2 <- select(playersPredictedStats_adjPer, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
+playersNewPredicted_OffDef <- mutate(playersNewPredicted_Final_adjMinPer2, Tm = Player, effMin = 1)
+playersPredicted <- .teamsPredictedPower(data = playersNewPredicted_OffDef,actualOrPred="predicted",maxs_vector = maxs_vector_input,
+                                       mins_vector = mins_vector_input) %>%
+  mutate(Player = substr(team_season,1,regexpr("_",team_season)-1),plusMinus = TEAM_PTS-TEAM_PTSAG) %>%
+  select(Player,Offense = TEAM_PTS, Defense = TEAM_PTSAG, plusMinus) %>%
+  as.data.frame()
+
+    playersPredicted2 <- merge(playersPredicted,values$playersAdjMin[,c("Player","Exp","Age","Tm","effMin")], by ="Player") %>% mutate(adjPlusMinus = plusMinus*effMin*100) %>% group_by(Tm) %>% mutate(teamPlusMinus = sum(adjPlusMinus,na.rm=TRUE)) %>% ungroup()
+
+    values$playersDatabase <- merge(playersPredictedStats_adjPer,select(playersPredicted2, -c(Age,Tm,effMin)), by = "Player")
+    ### Here's where average player is lost
+    values$playersRanks <- mutate_if(values$playersDatabase, is.numeric, function(x) row_number(desc(x)))
+    playerMax <- summarise_if(values$playersDatabase, is.numeric, max)
+    playerMin <- group_by(values$playersDatabase, Player) %>% summarise_if(is.numeric, min)
+
+    #source("code_chunks/source_predictedPowersWins.R",local=TRUE)
+    teamsPredicted <- .teamsPredictedPower(data =playersNewPredicted_Final_adjMinPer2, actualOrPred="predicted",maxs_vector = maxs_vector_input,
+                                       mins_vector = mins_vector_input)
+    win_predictions <- .teamsPredictedWins(data = teamsPredicted)
+
+    values$teamsDatabase <- merge(teamsPredicted, win_predictions, by.x = "TeamCode", by.y = "team") %>%
+      select(Tm = TeamCode, TeamOffense = TEAM_PTS, TeamDefense = TEAM_PTSAG, Season, wins)
+    values$teamsRanks <- mutate_if(values$teamsDatabase, is.numeric, function(x) row_number(desc(x)))
+
+    values$teamsStats <- .computeTeamStats(data = playersPredictedStats_adjPer)
+    teamStatRanks <- mutate_if(values$teamsStats, is.numeric, function(x) row_number(desc(x)))
+    values$teamsRanks <- merge(teamStatRanks, select(values$teamsRanks,-Season),by="Tm")
+    values$teamsMax <- summarise_if(values$teamsStats, is.numeric, max)
+
+    # update t_SNEs
+    values$playersTSNE <- .compute_tSNE_ready_players(data = values$playersAdjMin) %>% as.data.frame(stringsAsFactors = FALSE)
+    values$teamsTSNE <- .compute_tSNE_ready_teams(data = playersPredictedStats_adjPer) %>% as.data.frame(stringsAsFactors = FALSE)
+
+    # update player dashboard selector
+    updateSelectizeInput(session, "playerName", "Select Player", choices = select(values$playersDatabase,Player)$Player, selected = select(values$playersDatabase,Player)$Player[1])
+
+  })
+  
+  output$newPlayer_stats <- renderDataTable({
+    datatable(newPlayer,extensions = c('Scroller','FixedColumns'),
+            options = list(dom='t',
+                           pageLength = 1,
+                           autoWidth = TRUE,
+                           #deferRender = TRUE,
+                           scrollY = 25,
+                           scrollX = TRUE,
+                           fixedColumns = list(leftColumns = 1),
+                           scroller = TRUE,
+                           initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")),
+            rownames = FALSE) %>%
+    formatRound(c('FGPer','FG3Per','FG2Per','effFGPer','FTPer','effMin'), 2) %>%
+    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+  })
+
+})
+
+```
+

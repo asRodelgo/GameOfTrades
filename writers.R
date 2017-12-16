@@ -4,6 +4,8 @@
 # Alberto Sanchez Rodelgo
 #### --------------------------------
 
+########## PLAYERS ###########
+
 ## Update the historical players database: playersHist
 write_playersHist <- function() {
   # Look in basketballreference.com and loop for all seasons
@@ -48,6 +50,324 @@ write_playersHist <- function() {
   playersHist<- filter(playersHist, Season > "1978-1979")
   write.csv(playersHist, "data/playersHist.csv",row.names = FALSE)  
 }
+
+# Pre-compute tsne_points for all ages to save time as these computations don't really
+# depend on the player selected. 
+write_tsneBlocks <- function(){
+  
+  tsneBlock <- list()
+  num_iter <- 300
+  max_num_neighbors <- 20
+  for (a in 18:41){ # ages 18 to 41
+    tsneBlock[[a]] <- .tSNE_compute(num_iter, max_num_neighbors, a)
+    write.csv(tsneBlock[[a]],paste0("data/tsneBlock","_",a,".csv"),row.names = FALSE)
+  }
+}
+
+# write current or previous season rosters
+write_currentRosters_rostersLastSeason <- function(previousSeason = FALSE){
+  
+  thisSeason = substr(Sys.Date(),1,4)
+  library(httr)
+  new_rosters <- data.frame()
+  thisSeason <- as.numeric(thisSeason) + 1
+  
+  current_rosters <- data.frame()
+  playersNew <- playersHist %>% # keep only players last season
+    filter(Season == max(as.character(Season))) %>%
+    mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
+  playersNew <- filter(playersNew,!(Tm == "TOT"))
+  for (thisTeam in unique(playersNew$Tm)){
+    
+    url <- paste0("https://www.basketball-reference.com/teams/",thisTeam,"/",thisSeason,".html")
+    if (status_code(GET(url)) == 200){ # successful response
+      getRoster <- url %>%
+        read_html() %>%
+        html_nodes(xpath='//*[@id="roster"]') %>%
+        html_table(fill = TRUE)
+      thisRoster <- getRoster[[1]] %>% select(-`No.`)
+      names(thisRoster)[which(names(thisRoster)=='')] <- "Nationality"
+      thisRoster <- mutate(thisRoster, Tm = thisTeam, Exp = as.character(Exp))  
+      if (nrow(current_rosters)>0){
+        current_rosters <- bind_rows(current_rosters,thisRoster)
+      } else{
+        current_rosters <- thisRoster
+      }
+    }
+  }
+  names(current_rosters) <- gsub(" ","_",names(current_rosters))
+  #names(current_rosters) <- c(names(current_rosters)[1:5],"Birth_Date","Nationality","Experience","College","Team")
+  # I need to compute their current ages for the prediction model is based on their age
+  current_rosters <- mutate(current_rosters, Age = thisSeason - as.numeric(substr(Birth_Date,nchar(Birth_Date)-3,nchar(Birth_Date))),
+                            Season = paste0(thisSeason-1,"-",thisSeason))
+  
+  # write current_rosters or rostersLastSeason depending on value of thisSeason
+  if (previousSeason) {
+    write.csv(current_rosters, "data/rostersLastSeason.csv",row.names = FALSE)
+  } else {
+    write.csv(current_rosters, "data/currentRosters.csv",row.names = FALSE)
+  }
+}
+
+# write players predicted stats for an upcoming season
+# imports: playersHist.csv
+# calls several helpers
+write_playersNewPredicted <- function() {
+  
+  # update currentRosters, europePlayers and College players from write_rookiesDraft.R
+  current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE)
+  rookies <- read.csv("data/rookies.csv",stringsAsFactors = FALSE)
+  collegePlayers <- read.csv("data/collegePlayers.csv", stringsAsFactors = FALSE)
+  rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
+  europePlayers <- read.csv("data/europePlayers.csv", stringsAsFactors = FALSE)
+  playersNew <- playersHist %>%
+    filter(Season == max(as.character(Season))) %>%
+    mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
+  
+  playersNewPredicted <- data.frame()
+  for (team in unique(playersNew$Tm)){
+    
+    thisTeam <- filter(playersNew, Tm == team)
+    thisTeamStats <- data.frame()
+    counter <- 0 # keep count
+    for (player in thisTeam$Player){
+      counter <- counter + 1
+      #if (!(player %in% playersNewPredicted$Player)){ # skip running all. Start over where it failed
+      thisPlayer <- filter(thisTeam, Player == player)
+      #thisPlayer <- filter(playersNew, Player == player)
+      print(paste0("Team: ", team,": Processing ",thisPlayer$Player, " (",round(counter*100/nrow(playersNew),1),"%)"))
+      if (thisPlayer$Age < 20) { # not enough players to compare to at age 19 or younger
+        thisPlayer$Age <- 20
+      }
+      if (thisPlayer$Age > 39) { # not enough players to compare to at age 41 or older
+        thisPlayer$Age <- 39
+      }
+      thisPlayerStats <- .predictPlayer(thisPlayer$Player,20,thisPlayer$Age,10) %>% 
+        select(Player,Pos,Season,Age,everything())
+      
+      if (nrow(thisPlayerStats)>0){ # in case thisPlayerStats return an empty data.frame
+        if (!is.na(thisPlayerStats$effPTS)){ # rosters not yet updated so include R (last season rookies)
+          #if (thisPlayer$Exp %in% c(seq(1,25,1),"R")){ # rosters not yet updated so include R (last season rookies)
+          print("NBA player: OK!")
+          print(thisPlayerStats)
+        } else if (player %in% playersNew$Player) { # NBA player that didn't play enough minutes so I use his numbers from last season as prediction
+          thisPlayerStats <- .team_preparePredict(filter(playersNew, Player == player),team)  %>%
+            mutate(Age = Age + 1) %>%
+            select(Player,Pos,Season,Age,everything())
+          
+          thisMin <- thisTeam %>% mutate(effMin = MP*G/(5*15*3936)) # Use 15 as an approximate roster size to account for effective minutes played for players with low total minutes
+          teamMinutes <- sum(thisMin$effMin)
+          thisMin <- #mutate(thisMin, effMin = effMin) %>%
+            filter(thisMin,Player == player) %>%
+            distinct(effMin) %>%
+            as.numeric()
+          thisPlayerStats <- mutate(thisPlayerStats, effMin = thisMin)
+          
+          print("NBA player: Empty predicted stats!")
+          print(thisPlayerStats)
+        } else { # Rookie player or returns NA stats
+          # compute rookie player average stats for this player
+          thisPlayerStats <- .calculate_AvgPlayer(playersNew, thisPlayer$Age + 1) %>%
+            mutate(Player = as.character(thisPlayer$Player), Pos = as.character(thisPlayer$Pos), 
+                   G = as.numeric(thisPlayer$G), GS = as.numeric(thisPlayer$GS), Tm = team) 
+          thisPlayerStats <- .team_preparePredict(data = thisPlayerStats, thisTeam = as.character(thisPlayer$Tm),singlePlayer = TRUE)
+          print("Average player: OK!")
+          print(thisPlayerStats)
+          #}
+        }
+      } else if (player %in% playersNew$Player) { # NBA player that didn't play enough minutes so I use his numbers from last season as prediction
+        thisPlayerStats <- .team_preparePredict(filter(playersNew, Player == player),team)  %>%
+          mutate(Age = Age + 1) %>%
+          select(Player,Pos,Season,Age,everything())
+        print("NBA player: Short minutes!")
+        print(thisPlayerStats)
+      } else {
+        thisPlayerStats <- .calculate_AvgPlayer(playersNew, thisPlayer$Age + 1) %>%
+          mutate(Player = as.character(thisPlayer$Player), Pos = as.character(thisPlayer$Pos), 
+                 G = as.numeric(thisPlayer$G), GS = as.numeric(thisPlayer$GS), Tm = team, Age) 
+        thisPlayerStats <- .team_preparePredict(data = thisPlayerStats, thisTeam = as.character(thisPlayer$Tm),singlePlayer = TRUE)
+        print("Average player: OK!")
+        print(thisPlayerStats)
+      }  
+      if (nrow(thisTeamStats)>0){
+        thisTeamStats <- bind_rows(thisTeamStats,thisPlayerStats)
+      } else{
+        thisTeamStats <- thisPlayerStats
+      }
+    }
+    if (nrow(thisTeamStats) > 0) {
+      thisTeamStats <- mutate(thisTeamStats, Tm = team)
+      if (nrow(playersNewPredicted)>0){
+        playersNewPredicted <- bind_rows(playersNewPredicted,thisTeamStats)
+      } else{
+        playersNewPredicted <- thisTeamStats
+      }
+    }
+  }
+  playersNewPredicted <- distinct(playersNewPredicted, Player, Tm, .keep_all=TRUE)
+  limitMinutes <- 2*quantile(playersNewPredicted$effMin,.95) # control for possible outliers
+  defaultMinutes <- quantile(playersNewPredicted$effMin,.1) # assign low minutes to outliers as they most likely belong to players with very little playing time
+  playersNewPredicted2 <- mutate(playersNewPredicted,effMin = ifelse(effMin > limitMinutes, defaultMinutes,effMin))
+  write.csv(playersNewPredicted2, "data/playersNewPredicted_Oct20.csv", row.names = FALSE)
+}  
+
+# pre-calculate tsne points for all players and seasons
+write_tsne_points_All <- function(){
+  
+  # data_tsne contains the input data for tSNE filtered and cleaned up
+  # from: data_tsne <- .tSNE_prepare_All() # for tSNE visualization from similarityFunctions.R
+  # calculate tsne-points Dimensionality reduction to 2-D
+  
+  library(doMC) # use parallel processing on this machine through "foreach"
+  registerDoMC(2) # As far as I know my MAC works on 2 cores
+  #data_tsne_sample <- dplyr::sample_n(data_tsne,1000)
+  data_tsne_sample <- filter(data_tsne,Season > "1995-1996")
+  #%in% c("2012-2013","2013-2014","2014-2015","2015-2016"))
+  #"2012-2013","2013-2014","2014-2015",
+  
+  if (nrow(data_tsne)>0){
+    num_iter <- 400
+    max_num_neighbors <- 50
+    set.seed(456) # reproducitility
+    tsne_points <- tsne(data_tsne_sample[,-c(1:5)], 
+                        max_iter=as.numeric(num_iter), 
+                        perplexity=as.numeric(max_num_neighbors), 
+                        epoch=100)
+    #plot(tsne_points)
+  } else {
+    tsne_points <- c()
+  }
+  write.csv(tsne_points, "data/tsne_points_All.csv",row.names = FALSE)
+  
+}
+
+# write MVPs from past seasons
+write_mvps <- function(){
+  
+  library(httr)
+  library(rvest)
+  
+  mvps <- data.frame(Player=NULL, Season=NULL)
+  for (thisSeason in 1980:as.numeric(thisYear)){
+    
+    url <- paste0("https://www.basketball-reference.com/leagues/NBA_",
+                  thisSeason,".html")
+    
+    thisPlayer <- url %>%
+      read_html() %>%
+      html_nodes(xpath='//*[@id="meta"]/div[2]/p[2]/a') %>%
+      html_text()
+    
+    thisMVP <- data.frame(Player = thisPlayer, Season = paste0(thisSeason-1,"-",thisSeason))
+    if (nrow(mvps) > 0) mvps <- rbind(mvps,thisMVP) else mvps <- thisMVP
+  }
+  
+  write.csv(mvps, "data/mvps.csv", row.names = FALSE)
+}
+
+# compile league awards: mvp, def player, rookie of the year, etc.
+write_Awards <- function(){ # Not working!
+  
+  library(httr)
+  library(rvest)
+  
+  awards <- data.frame(Player=NULL, Season=NULL, award=NULL)
+  for (thisSeason in 1980:as.numeric(thisYear)){
+    
+    url <- paste0("https://www.basketball-reference.com/leagues/NBA_",
+                  thisSeason,".html")
+    
+    thisPlayer <- url %>%
+      read_html() %>%
+      html_nodes(xpath='//*[@id="div_all-nba"]') %>%
+      #html_children() %>%
+      #html_children() %>%
+      html_nodes('table')
+    
+    thisAwards <- data.frame(Player = thisPlayer, Season = paste0(thisSeason-1,"-",thisSeason), award = )
+    if (nrow(awards) > 0) awards <- rbind(awards,thisAwards) else awards <- thisAwards
+  }
+  
+  write.csv(mvps, "data/mvps.csv", row.names = FALSE)
+}
+
+# put together tsne_ready to load at the start of dashboards
+# imports: tsne_points_All.csv
+# calls helpers
+write_tsne_ready_hist <- function() {
+  
+  source("helper_functions.R")
+  #.teamsPredictedPower() 
+  tsne_points <- read.csv("data/tsne_points_All.csv",stringsAsFactors = FALSE)
+  
+  # load data
+  data_tsne <- .tSNE_prepare_All() # for tSNE visualization from similarityFunctions.R
+  data_tsne_sample <- filter(data_tsne,Season > "1995-1996")
+  # tsne_points are pre-calculated from write_tSNE_All.R and saved in data/ directory
+  # using this function: tsne_points <- write_tSNE_compute_All()
+  if (!nrow(data_tsne_sample)==nrow(tsne_points)){ # in case labels and coordinates have different sizes
+    tsne_ready <- tsne_points
+  } else {
+    tsne_ready <- cbind(data_tsne_sample,tsne_points)
+  }
+  
+  names(tsne_ready)[ncol(tsne_ready)-1] <- "x"
+  names(tsne_ready)[ncol(tsne_ready)] <- "y"
+  
+  write.csv(tsne_ready, "data/tsne_ready_hist.csv", row.names = FALSE)
+  
+}
+
+# precalculate t-SNE for predicted stats (new season)
+# imports: playersNewPredicted_Final_adjMin.csv
+write_tsne_points_newSeason <- function() {
+  
+  require(tsne)
+  data_tsne_sample <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE) %>%
+    select_if(is.numeric) %>% select(-Pick)
+  
+  if (nrow(data_tsne_sample)>0){
+    num_iter <- 600
+    max_num_neighbors <- 20
+    set.seed(456) # reproducitility
+    tsne_points <- tsne(data_tsne_sample, 
+                        max_iter=as.numeric(num_iter), 
+                        perplexity=as.numeric(max_num_neighbors), 
+                        epoch=100)
+    plot(tsne_points)
+  } else {
+    tsne_points <- c()
+  }
+  write.csv(tsne_points, "data/tsne_points_newSeason.csv",row.names = FALSE)
+  
+}
+
+# put together tsne_ready predicted to load at start of dashboards
+# imports: tsne_points_newSeason.csv and playersNewPredicted_Final_adjMin.csv
+# calls helpers
+write_tsne_ready_newSeason <- function(){
+  
+  source("helper_functions.R")
+  tsne_points <- read.csv("data/tsne_points_newSeason.csv",stringsAsFactors = FALSE)
+  
+  # load data
+  data_tsne_sample <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE) %>%
+    select_if(is.character)
+  # tsne_points are pre-calculated from write_tSNE_All.R and saved in data/ directory
+  # using this function: tsne_points <- write_tSNE_compute_All()
+  if (!nrow(data_tsne_sample)==nrow(tsne_points)){ # in case labels and coordinates have different sizes
+    tsne_ready <- tsne_points
+  } else {
+    tsne_ready <- cbind(data_tsne_sample,tsne_points)
+  }
+  
+  names(tsne_ready)[ncol(tsne_ready)-1] <- "x"
+  names(tsne_ready)[ncol(tsne_ready)] <- "y"
+  
+  write.csv(tsne_ready, "data/tsne_ready_newSeason.csv", row.names = FALSE)
+}
+
+########## TEAMS ###########
 
 # Write team stats by season. 
 # Imports: playersHist.csv
@@ -120,6 +440,61 @@ write_teamStats <- function() {
   write.csv(teamStats, "data/teamStats.csv",row.names = FALSE)
 }
 
+# compute tsne for teams
+# imports: playersNewPredicted_Final_adjPer.csv
+# calls helpers
+write_tsne_points_teams <- function(){
+  
+  require(tsne)
+  playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE)
+  teamStats <- .computeTeamStats(data = playersPredictedStats_adjPer)
+  data_tsne_sample <- teamStats %>% 
+    select_if(is.numeric) %>%
+    mutate_all(function(x) (x-min(x))/(max(x)-min(x)))
+  
+  if (nrow(data_tsne_sample)>0){
+    num_iter <- 1500
+    max_num_neighbors <- 2
+    set.seed(456) # reproducitility
+    tsne_points <- tsne(data_tsne_sample, 
+                        max_iter=as.numeric(num_iter), 
+                        perplexity=as.numeric(max_num_neighbors), 
+                        epoch=100)
+    plot(tsne_points)
+  } else {
+    tsne_points <- c()
+  }
+  write.csv(tsne_points, "data/tsne_points_teams.csv",row.names = FALSE)
+}
+
+# put together tsne_ready predicted to load at start of dashboards
+# imports: tsne_points_teams.csv and playersNewPredicted_Final_adjPer.csv
+# calls helpers
+write_tsne_ready_teams <- function(){
+  
+  source("helper_functions.R")
+  tsne_points <- read.csv("data/tsne_points_teams.csv",stringsAsFactors = FALSE)
+  
+  # load data
+  playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE)
+  data_tsne_sample <- .computeTeamStats(data = playersPredictedStats_adjPer) %>%
+    select_if(is.character)
+  # tsne_points are pre-calculated from write_tSNE_All.R and saved in data/ directory
+  # using this function: tsne_points <- write_tSNE_compute_All()
+  if (!nrow(data_tsne_sample)==nrow(tsne_points)){ # in case labels and coordinates have different sizes
+    tsne_ready <- tsne_points
+  } else {
+    tsne_ready <- cbind(data_tsne_sample,tsne_points)
+  }
+  
+  names(tsne_ready)[ncol(tsne_ready)-1] <- "x"
+  names(tsne_ready)[ncol(tsne_ready)] <- "y"
+  
+  write.csv(tsne_ready, "data/tsne_ready_teams.csv", row.names = FALSE)
+}
+
+########## ROOKIES ###########
+
 # Historical drafted rookies
 write_rookiesHist <- function(){
   
@@ -166,7 +541,7 @@ write_collegePlayersHist <- function(){
   
   firstDraft <- 1994
   collegePlayersHist <- data.frame()
-
+  
   for (season in (firstDraft-1):(lastDraft-1)){
     
     url <- paste0("http://www.sports-reference.com/cbb/play-index/psl_finder.cgi?request=1&match=single&year_min=",
@@ -225,22 +600,9 @@ write_rookieStatsHist <- function(){
   write.csv(rookieStatsHist, "data/rookieStatsHist.csv", row.names = FALSE)
 }
 
-# Pre-compute tsne_points for all ages to save time as these computations don't really
-# depend on the player selected. 
-write_tsneBlocks <- function(){
-  
-  tsneBlock <- list()
-  num_iter <- 300
-  max_num_neighbors <- 20
-  for (a in 18:41){ # ages 18 to 41
-    tsneBlock[[a]] <- .tSNE_compute(num_iter, max_num_neighbors, a)
-    write.csv(tsneBlock[[a]],paste0("data/tsneBlock","_",a,".csv"),row.names = FALSE)
-  }
-}
-
 # computes tsne for rookies
 # uses helper .tSNE_prepareRookies()
-write_tsne_pointsRookies <- function(num_iter, max_num_neighbors){
+write_tsne_pointsRookies <- function(){
   
   num_iter <- 400
   max_num_neighbors <- 10
@@ -257,107 +619,6 @@ write_tsne_pointsRookies <- function(num_iter, max_num_neighbors){
     tsne_points <- c()
   }
   write.csv(tsne_points, "data/tsne_pointsRookies.csv",row.names = FALSE)
-}
-
-# Real season schedule from basketball-reference
-write_realSeasonSchedule <- function(){
-  
-  library(httr)
-  library(rvest)
-  
-  # If not new data yet (transfers not finished so teams rosters not final), -----------------------------------------
-  dataNewSeason <- FALSE
-  if (dataNewSeason==FALSE){
-    # use last season's as new data, removing PTS & PTSA
-    team_statsNew <- team_stats %>%
-      filter(Season == max(as.character(Season))) %>%
-      mutate(W = 0, L = 0, PTS = 0, PTSA = 0, SRS = 0, 
-             Season = paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)) %>%
-      distinct(Team, .keep_all=TRUE)
-    # same for players
-    playersNew <- playersHist %>%
-      filter(Season == max(as.character(Season))) %>%
-      mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
-  }
-  
-  thisSeason <- substr(as.character(playersNew$Season[1]),6,9)
-  months_list <- c("october","november","december",'january',"february","march","april")
-  
-  season_schedule <- data.frame()
-  for (month in months_list){
-    
-    url <- paste0("http://www.basketball-reference.com/leagues/NBA_",
-                  thisSeason,"_games-",month,".html")
-    
-    thisMonthSchedule <- url %>%
-      read_html() %>%
-      html_nodes(xpath='//*[@id="schedule"]') %>%
-      html_table(fill = TRUE)
-    thisMonthSchedule <- thisMonthSchedule[[1]]
-    season_schedule <- bind_rows(season_schedule,thisMonthSchedule)
-  }
-  season_schedule <- dplyr::select(season_schedule, Date,StartTime=`Start (ET)`,
-                                   teamH=`Home/Neutral`, teamA=`Visitor/Neutral`)
-  
-  
-  # Convert team names to team codes
-  season_schedule <- merge(season_schedule,team_statsNew[,c("Team","teamCode")],by.x="teamH",by.y="Team",all.x=TRUE)
-  season_schedule <- merge(season_schedule,team_statsNew[,c("Team","teamCode")],by.x="teamA",by.y="Team",all.x=TRUE)
-  season_schedule <- season_schedule %>%
-    dplyr::select(-teamA,-teamH, teamH = teamCode.x, teamA = teamCode.y) %>%
-    mutate(Date = paste0(substr(Date,nchar(Date)-3,nchar(Date)),"-",
-                         substr(Date,6,8),"-",substr(Date,10,11))) %>%
-    mutate(Date = ifelse(grepl(",",Date),paste0(substr(Date,1,nchar(Date)-2),"0",
-                                                substr(Date,nchar(Date)-1,nchar(Date)-1)),Date)) %>%
-    mutate(Date = as.Date(Date,"%Y-%B-%d"), 
-           StartTime = ifelse(nchar(StartTime)<8,paste0("0",StartTime),StartTime)) %>%
-    arrange(Date,StartTime)
-  
-  write.csv(season_schedule,"data/realSeasonSchedule.csv",row.names = FALSE)
-}
-
-# Pre-calculate all games scores for 1 full season
-# imports playersHist.csv
-write_gameScores <- function() {
-  
-  require(httr)
-  require(tidyverse)
-  library(rvest)
-  thisYear <- substr(Sys.Date(),1,4)
-  playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE)
-  
-  ##### ALL SEASONS ########
-  firstYear <- 2000
-  
-  # Read teams stats for all seasons
-  teamPoints <- data.frame()
-  
-  for (year in firstYear:thisYear){
-    for (month in c("october","november","december","january","february","march","april","may","june")) {
-      
-      url <- paste0("https://www.basketball-reference.com/leagues/NBA_",year,"_games-",month,".html")
-      if (status_code(GET(url)) == 200) {
-        
-        thisMonthStats <- url %>%
-          read_html() %>%
-          #html_nodes(xpath='//*[@id="all_standings"]/table') %>%
-          html_nodes(xpath='//*[@id="schedule"]') %>%
-          html_table(fill = TRUE)
-        thisMonthStats <- thisMonthStats[[1]]
-        thisMonthStats <- thisMonthStats[,c(1,4,6)]
-        names(thisMonthStats) <- c("Date","pts_away","pts_home")
-        
-        if (nrow(teamPoints) > 0) {
-          teamPoints <- rbind(teamPoints,thisMonthStats)
-        } else {
-          teamPoints <- thisMonthStats
-        }
-        
-      }
-      
-    }
-  }
-  write.csv(teamPoints, "data/gameScores.csv", row.names = FALSE)
 }
 
 # write rookies from last draft
@@ -668,361 +929,110 @@ write_rookieEfficientStats <- function() {
   write.csv(rookieEffStats, "data/rookieEfficientStats.csv", row.names = FALSE)
 }
 
-# write current or previous season rosters
-write_currentRosters_rostersLastSeason <- function(previousSeason = FALSE){
+########## SEASON ###########
+
+# Real season schedule from basketball-reference
+write_realSeasonSchedule <- function(){
   
-  thisSeason = substr(Sys.Date(),1,4)
   library(httr)
-  new_rosters <- data.frame()
-  thisSeason <- as.numeric(thisSeason) + 1
+  library(rvest)
   
-  current_rosters <- data.frame()
-  playersNew <- playersHist %>% # keep only players last season
-    filter(Season == max(as.character(Season))) %>%
-    mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
-  playersNew <- filter(playersNew,!(Tm == "TOT"))
-  for (thisTeam in unique(playersNew$Tm)){
+  # If not new data yet (transfers not finished so teams rosters not final), -----------------------------------------
+  dataNewSeason <- FALSE
+  if (dataNewSeason==FALSE){
+    # use last season's as new data, removing PTS & PTSA
+    team_statsNew <- team_stats %>%
+      filter(Season == max(as.character(Season))) %>%
+      mutate(W = 0, L = 0, PTS = 0, PTSA = 0, SRS = 0, 
+             Season = paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)) %>%
+      distinct(Team, .keep_all=TRUE)
+    # same for players
+    playersNew <- playersHist %>%
+      filter(Season == max(as.character(Season))) %>%
+      mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
+  }
+  
+  thisSeason <- substr(as.character(playersNew$Season[1]),6,9)
+  months_list <- c("october","november","december",'january',"february","march","april")
+  
+  season_schedule <- data.frame()
+  for (month in months_list){
     
-    url <- paste0("https://www.basketball-reference.com/teams/",thisTeam,"/",thisSeason,".html")
-    if (status_code(GET(url)) == 200){ # successful response
-      getRoster <- url %>%
-        read_html() %>%
-        html_nodes(xpath='//*[@id="roster"]') %>%
-        html_table(fill = TRUE)
-      thisRoster <- getRoster[[1]] %>% select(-`No.`)
-      names(thisRoster)[which(names(thisRoster)=='')] <- "Nationality"
-      thisRoster <- mutate(thisRoster, Tm = thisTeam, Exp = as.character(Exp))  
-      if (nrow(current_rosters)>0){
-        current_rosters <- bind_rows(current_rosters,thisRoster)
-      } else{
-        current_rosters <- thisRoster
-      }
-    }
+    url <- paste0("http://www.basketball-reference.com/leagues/NBA_",
+                  thisSeason,"_games-",month,".html")
+    
+    thisMonthSchedule <- url %>%
+      read_html() %>%
+      html_nodes(xpath='//*[@id="schedule"]') %>%
+      html_table(fill = TRUE)
+    thisMonthSchedule <- thisMonthSchedule[[1]]
+    season_schedule <- bind_rows(season_schedule,thisMonthSchedule)
   }
-  names(current_rosters) <- gsub(" ","_",names(current_rosters))
-  #names(current_rosters) <- c(names(current_rosters)[1:5],"Birth_Date","Nationality","Experience","College","Team")
-  # I need to compute their current ages for the prediction model is based on their age
-  current_rosters <- mutate(current_rosters, Age = thisSeason - as.numeric(substr(Birth_Date,nchar(Birth_Date)-3,nchar(Birth_Date))),
-                            Season = paste0(thisSeason-1,"-",thisSeason))
+  season_schedule <- dplyr::select(season_schedule, Date,StartTime=`Start (ET)`,
+                                   teamH=`Home/Neutral`, teamA=`Visitor/Neutral`)
   
-  # write current_rosters or rostersLastSeason depending on value of thisSeason
-  if (previousSeason) {
-    write.csv(current_rosters, "data/rostersLastSeason.csv",row.names = FALSE)
-  } else {
-    write.csv(current_rosters, "data/currentRosters.csv",row.names = FALSE)
-  }
+  
+  # Convert team names to team codes
+  season_schedule <- merge(season_schedule,team_statsNew[,c("Team","teamCode")],by.x="teamH",by.y="Team",all.x=TRUE)
+  season_schedule <- merge(season_schedule,team_statsNew[,c("Team","teamCode")],by.x="teamA",by.y="Team",all.x=TRUE)
+  season_schedule <- season_schedule %>%
+    dplyr::select(-teamA,-teamH, teamH = teamCode.x, teamA = teamCode.y) %>%
+    mutate(Date = paste0(substr(Date,nchar(Date)-3,nchar(Date)),"-",
+                         substr(Date,6,8),"-",substr(Date,10,11))) %>%
+    mutate(Date = ifelse(grepl(",",Date),paste0(substr(Date,1,nchar(Date)-2),"0",
+                                                substr(Date,nchar(Date)-1,nchar(Date)-1)),Date)) %>%
+    mutate(Date = as.Date(Date,"%Y-%B-%d"), 
+           StartTime = ifelse(nchar(StartTime)<8,paste0("0",StartTime),StartTime)) %>%
+    arrange(Date,StartTime)
+  
+  write.csv(season_schedule,"data/realSeasonSchedule.csv",row.names = FALSE)
 }
 
-# write players predicted stats for an upcoming season
-# imports: playersHist.csv
-# calls several helpers
-write_playersNewPredicted <- function() {
+# Pre-calculate all games scores for 1 full season
+# imports playersHist.csv
+write_gameScores <- function() {
   
-  # update currentRosters, europePlayers and College players from write_rookiesDraft.R
-  current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE)
-  rookies <- read.csv("data/rookies.csv",stringsAsFactors = FALSE)
-  collegePlayers <- read.csv("data/collegePlayers.csv", stringsAsFactors = FALSE)
-  rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
-  europePlayers <- read.csv("data/europePlayers.csv", stringsAsFactors = FALSE)
-  playersNew <- playersHist %>%
-    filter(Season == max(as.character(Season))) %>%
-    mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
+  require(httr)
+  require(tidyverse)
+  library(rvest)
+  thisYear <- substr(Sys.Date(),1,4)
+  playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE)
   
-  playersNewPredicted <- data.frame()
-  for (team in unique(playersNew$Tm)){
-    
-    thisTeam <- filter(playersNew, Tm == team)
-    thisTeamStats <- data.frame()
-    counter <- 0 # keep count
-    for (player in thisTeam$Player){
-      counter <- counter + 1
-      #if (!(player %in% playersNewPredicted$Player)){ # skip running all. Start over where it failed
-      thisPlayer <- filter(thisTeam, Player == player)
-      #thisPlayer <- filter(playersNew, Player == player)
-      print(paste0("Team: ", team,": Processing ",thisPlayer$Player, " (",round(counter*100/nrow(playersNew),1),"%)"))
-      if (thisPlayer$Age < 20) { # not enough players to compare to at age 19 or younger
-        thisPlayer$Age <- 20
-      }
-      if (thisPlayer$Age > 39) { # not enough players to compare to at age 41 or older
-        thisPlayer$Age <- 39
-      }
-      thisPlayerStats <- .predictPlayer(thisPlayer$Player,20,thisPlayer$Age,10) %>% 
-        select(Player,Pos,Season,Age,everything())
+  ##### ALL SEASONS ########
+  firstYear <- 2000
+  
+  # Read teams stats for all seasons
+  teamPoints <- data.frame()
+  
+  for (year in firstYear:thisYear){
+    for (month in c("october","november","december","january","february","march","april","may","june")) {
       
-      if (nrow(thisPlayerStats)>0){ # in case thisPlayerStats return an empty data.frame
-        if (!is.na(thisPlayerStats$effPTS)){ # rosters not yet updated so include R (last season rookies)
-          #if (thisPlayer$Exp %in% c(seq(1,25,1),"R")){ # rosters not yet updated so include R (last season rookies)
-          print("NBA player: OK!")
-          print(thisPlayerStats)
-        } else if (player %in% playersNew$Player) { # NBA player that didn't play enough minutes so I use his numbers from last season as prediction
-          thisPlayerStats <- .team_preparePredict(filter(playersNew, Player == player),team)  %>%
-            mutate(Age = Age + 1) %>%
-            select(Player,Pos,Season,Age,everything())
-          
-          thisMin <- thisTeam %>% mutate(effMin = MP*G/(5*15*3936)) # Use 15 as an approximate roster size to account for effective minutes played for players with low total minutes
-          teamMinutes <- sum(thisMin$effMin)
-          thisMin <- #mutate(thisMin, effMin = effMin) %>%
-            filter(thisMin,Player == player) %>%
-            distinct(effMin) %>%
-            as.numeric()
-          thisPlayerStats <- mutate(thisPlayerStats, effMin = thisMin)
-          
-          print("NBA player: Empty predicted stats!")
-          print(thisPlayerStats)
-        } else { # Rookie player or returns NA stats
-          # compute rookie player average stats for this player
-          thisPlayerStats <- .calculate_AvgPlayer(playersNew, thisPlayer$Age + 1) %>%
-            mutate(Player = as.character(thisPlayer$Player), Pos = as.character(thisPlayer$Pos), 
-                   G = as.numeric(thisPlayer$G), GS = as.numeric(thisPlayer$GS), Tm = team) 
-          thisPlayerStats <- .team_preparePredict(data = thisPlayerStats, thisTeam = as.character(thisPlayer$Tm),singlePlayer = TRUE)
-          print("Average player: OK!")
-          print(thisPlayerStats)
-          #}
+      url <- paste0("https://www.basketball-reference.com/leagues/NBA_",year,"_games-",month,".html")
+      if (status_code(GET(url)) == 200) {
+        
+        thisMonthStats <- url %>%
+          read_html() %>%
+          #html_nodes(xpath='//*[@id="all_standings"]/table') %>%
+          html_nodes(xpath='//*[@id="schedule"]') %>%
+          html_table(fill = TRUE)
+        thisMonthStats <- thisMonthStats[[1]]
+        thisMonthStats <- thisMonthStats[,c(1,4,6)]
+        names(thisMonthStats) <- c("Date","pts_away","pts_home")
+        
+        if (nrow(teamPoints) > 0) {
+          teamPoints <- rbind(teamPoints,thisMonthStats)
+        } else {
+          teamPoints <- thisMonthStats
         }
-      } else if (player %in% playersNew$Player) { # NBA player that didn't play enough minutes so I use his numbers from last season as prediction
-        thisPlayerStats <- .team_preparePredict(filter(playersNew, Player == player),team)  %>%
-          mutate(Age = Age + 1) %>%
-          select(Player,Pos,Season,Age,everything())
-        print("NBA player: Short minutes!")
-        print(thisPlayerStats)
-      } else {
-        thisPlayerStats <- .calculate_AvgPlayer(playersNew, thisPlayer$Age + 1) %>%
-          mutate(Player = as.character(thisPlayer$Player), Pos = as.character(thisPlayer$Pos), 
-                 G = as.numeric(thisPlayer$G), GS = as.numeric(thisPlayer$GS), Tm = team, Age) 
-        thisPlayerStats <- .team_preparePredict(data = thisPlayerStats, thisTeam = as.character(thisPlayer$Tm),singlePlayer = TRUE)
-        print("Average player: OK!")
-        print(thisPlayerStats)
-      }  
-      if (nrow(thisTeamStats)>0){
-        thisTeamStats <- bind_rows(thisTeamStats,thisPlayerStats)
-      } else{
-        thisTeamStats <- thisPlayerStats
+        
       }
-    }
-    if (nrow(thisTeamStats) > 0) {
-      thisTeamStats <- mutate(thisTeamStats, Tm = team)
-      if (nrow(playersNewPredicted)>0){
-        playersNewPredicted <- bind_rows(playersNewPredicted,thisTeamStats)
-      } else{
-        playersNewPredicted <- thisTeamStats
-      }
+      
     }
   }
-  playersNewPredicted <- distinct(playersNewPredicted, Player, Tm, .keep_all=TRUE)
-  limitMinutes <- 2*quantile(playersNewPredicted$effMin,.95) # control for possible outliers
-  defaultMinutes <- quantile(playersNewPredicted$effMin,.1) # assign low minutes to outliers as they most likely belong to players with very little playing time
-  playersNewPredicted2 <- mutate(playersNewPredicted,effMin = ifelse(effMin > limitMinutes, defaultMinutes,effMin))
-  write.csv(playersNewPredicted2, "data/playersNewPredicted_Oct20.csv", row.names = FALSE)
-}  
-
-# pre-calculate tsne points for all players and seasons
-write_tsne_points_All <- function(){
-  
-  # data_tsne contains the input data for tSNE filtered and cleaned up
-  # from: data_tsne <- .tSNE_prepare_All() # for tSNE visualization from similarityFunctions.R
-  # calculate tsne-points Dimensionality reduction to 2-D
-  
-  library(doMC) # use parallel processing on this machine through "foreach"
-  registerDoMC(2) # As far as I know my MAC works on 2 cores
-  #data_tsne_sample <- dplyr::sample_n(data_tsne,1000)
-  data_tsne_sample <- filter(data_tsne,Season > "1995-1996")
-  #%in% c("2012-2013","2013-2014","2014-2015","2015-2016"))
-  #"2012-2013","2013-2014","2014-2015",
-  
-  if (nrow(data_tsne)>0){
-    num_iter <- 400
-    max_num_neighbors <- 50
-    set.seed(456) # reproducitility
-    tsne_points <- tsne(data_tsne_sample[,-c(1:5)], 
-                        max_iter=as.numeric(num_iter), 
-                        perplexity=as.numeric(max_num_neighbors), 
-                        epoch=100)
-    #plot(tsne_points)
-  } else {
-    tsne_points <- c()
-  }
-  write.csv(tsne_points, "data/tsne_points_All.csv",row.names = FALSE)
-  
+  write.csv(teamPoints, "data/gameScores.csv", row.names = FALSE)
 }
 
-# write MVPs from past seasons
-write_mvps <- function(){
-  
-  library(httr)
-  library(rvest)
-  
-  mvps <- data.frame(Player=NULL, Season=NULL)
-  for (thisSeason in 1980:as.numeric(thisYear)){
-    
-    url <- paste0("https://www.basketball-reference.com/leagues/NBA_",
-                  thisSeason,".html")
-    
-    thisPlayer <- url %>%
-      read_html() %>%
-      html_nodes(xpath='//*[@id="meta"]/div[2]/p[2]/a') %>%
-      html_text()
-    
-    thisMVP <- data.frame(Player = thisPlayer, Season = paste0(thisSeason-1,"-",thisSeason))
-    if (nrow(mvps) > 0) mvps <- rbind(mvps,thisMVP) else mvps <- thisMVP
-  }
-  
-  write.csv(mvps, "data/mvps.csv", row.names = FALSE)
-}
-
-# compile league awards: mvp, def player, rookie of the year, etc.
-write_Awards <- function(){ # Not working!
-  
-  library(httr)
-  library(rvest)
-  
-  awards <- data.frame(Player=NULL, Season=NULL, award=NULL)
-  for (thisSeason in 1980:as.numeric(thisYear)){
-    
-    url <- paste0("https://www.basketball-reference.com/leagues/NBA_",
-                  thisSeason,".html")
-    
-    thisPlayer <- url %>%
-      read_html() %>%
-      html_nodes(xpath='//*[@id="div_all-nba"]') %>%
-      #html_children() %>%
-      #html_children() %>%
-      html_nodes('table')
-    
-    thisAwards <- data.frame(Player = thisPlayer, Season = paste0(thisSeason-1,"-",thisSeason), award = )
-    if (nrow(awards) > 0) awards <- rbind(awards,thisAwards) else awards <- thisAwards
-  }
-  
-  write.csv(mvps, "data/mvps.csv", row.names = FALSE)
-}
-
-# put together tsne_ready to load at the start of dashboards
-# imports: tsne_points_All.csv
-# calls helpers
-write_tsne_ready_hist <- function() {
-  
-  source("helper_functions.R")
-  #.teamsPredictedPower() 
-  tsne_points <- read.csv("data/tsne_points_All.csv",stringsAsFactors = FALSE)
-  
-  # load data
-  data_tsne <- .tSNE_prepare_All() # for tSNE visualization from similarityFunctions.R
-  data_tsne_sample <- filter(data_tsne,Season > "1995-1996")
-  # tsne_points are pre-calculated from write_tSNE_All.R and saved in data/ directory
-  # using this function: tsne_points <- write_tSNE_compute_All()
-  if (!nrow(data_tsne_sample)==nrow(tsne_points)){ # in case labels and coordinates have different sizes
-    tsne_ready <- tsne_points
-  } else {
-    tsne_ready <- cbind(data_tsne_sample,tsne_points)
-  }
-  
-  names(tsne_ready)[ncol(tsne_ready)-1] <- "x"
-  names(tsne_ready)[ncol(tsne_ready)] <- "y"
-  
-  write.csv(tsne_ready, "data/tsne_ready_hist.csv", row.names = FALSE)
-  
-}
-
-# precalculate t-SNE for predicted stats (new season)
-# imports: playersNewPredicted_Final_adjMin.csv
-write_tsne_points_newSeason <- function() {
-  
-  require(tsne)
-  data_tsne_sample <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE) %>%
-    select_if(is.numeric) %>% select(-Pick)
-  
-  if (nrow(data_tsne_sample)>0){
-    num_iter <- 600
-    max_num_neighbors <- 20
-    set.seed(456) # reproducitility
-    tsne_points <- tsne(data_tsne_sample, 
-                        max_iter=as.numeric(num_iter), 
-                        perplexity=as.numeric(max_num_neighbors), 
-                        epoch=100)
-    plot(tsne_points)
-  } else {
-    tsne_points <- c()
-  }
-  write.csv(tsne_points, "data/tsne_points_newSeason.csv",row.names = FALSE)
-  
-}
-
-# put together tsne_ready predicted to load at start of dashboards
-# imports: tsne_points_newSeason.csv and playersNewPredicted_Final_adjMin.csv
-# calls helpers
-write_tsne_ready_newSeason <- function(){
-  
-  source("helper_functions.R")
-  tsne_points <- read.csv("data/tsne_points_newSeason.csv",stringsAsFactors = FALSE)
-  
-  # load data
-  data_tsne_sample <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE) %>%
-    select_if(is.character)
-  # tsne_points are pre-calculated from write_tSNE_All.R and saved in data/ directory
-  # using this function: tsne_points <- write_tSNE_compute_All()
-  if (!nrow(data_tsne_sample)==nrow(tsne_points)){ # in case labels and coordinates have different sizes
-    tsne_ready <- tsne_points
-  } else {
-    tsne_ready <- cbind(data_tsne_sample,tsne_points)
-  }
-  
-  names(tsne_ready)[ncol(tsne_ready)-1] <- "x"
-  names(tsne_ready)[ncol(tsne_ready)] <- "y"
-  
-  write.csv(tsne_ready, "data/tsne_ready_newSeason.csv", row.names = FALSE)
-}
-
-# compute tsne for teams
-# imports: playersNewPredicted_Final_adjPer.csv
-# calls helpers
-write_tsne_points_teams <- function(){
-  
-  require(tsne)
-  playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE)
-  teamStats <- .computeTeamStats(data = playersPredictedStats_adjPer)
-  data_tsne_sample <- teamStats %>% 
-    select_if(is.numeric) %>%
-    mutate_all(function(x) (x-min(x))/(max(x)-min(x)))
-  
-  if (nrow(data_tsne_sample)>0){
-    num_iter <- 1500
-    max_num_neighbors <- 2
-    set.seed(456) # reproducitility
-    tsne_points <- tsne(data_tsne_sample, 
-                        max_iter=as.numeric(num_iter), 
-                        perplexity=as.numeric(max_num_neighbors), 
-                        epoch=100)
-    plot(tsne_points)
-  } else {
-    tsne_points <- c()
-  }
-  write.csv(tsne_points, "data/tsne_points_teams.csv",row.names = FALSE)
-}
-
-# put together tsne_ready predicted to load at start of dashboards
-# imports: tsne_points_teams.csv and playersNewPredicted_Final_adjPer.csv
-# calls helpers
-write_tsne_ready_teams <- function(){
-  
-  source("helper_functions.R")
-  tsne_points <- read.csv("data/tsne_points_teams.csv",stringsAsFactors = FALSE)
-  
-  # load data
-  playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE)
-  data_tsne_sample <- .computeTeamStats(data = playersPredictedStats_adjPer) %>%
-    select_if(is.character)
-  # tsne_points are pre-calculated from write_tSNE_All.R and saved in data/ directory
-  # using this function: tsne_points <- write_tSNE_compute_All()
-  if (!nrow(data_tsne_sample)==nrow(tsne_points)){ # in case labels and coordinates have different sizes
-    tsne_ready <- tsne_points
-  } else {
-    tsne_ready <- cbind(data_tsne_sample,tsne_points)
-  }
-  
-  names(tsne_ready)[ncol(tsne_ready)-1] <- "x"
-  names(tsne_ready)[ncol(tsne_ready)] <- "y"
-  
-  write.csv(tsne_ready, "data/tsne_ready_teams.csv", row.names = FALSE)
-}
+########## IMAGES ###########
 
 # write team logo images
 write_teamLogos <- function(){
