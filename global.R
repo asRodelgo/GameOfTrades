@@ -8,6 +8,8 @@ library(tidyverse)
 library(DT)
 library(shinyBS)
 library(shinyjs)
+library(caret)
+library(neuralnet) # neural network for regression
 
 # variables set up
 thisYear <- substr(Sys.Date(),1,4)

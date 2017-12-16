@@ -1065,7 +1065,7 @@ renderDataTable(games_probs())
 ```{r}
 
 standingsW_table <- reactive({
-  stands <- .getConferenceStandings("W",input$regSeasonDay)
+  stands <- .getConferenceStandings("W",as.character(input$regSeasonDay))
   
   datatable(stands,extensions = c('Scroller'),
             options = list(dom='t',
@@ -1085,7 +1085,7 @@ standingsW_table <- reactive({
 })
 ### Standings East
 standingsE_table <- reactive({
-  stands <- .getConferenceStandings("E",input$regSeasonDay)
+  stands <- .getConferenceStandings("E",as.character(input$regSeasonDay))
   
   datatable(stands,extensions = c('Scroller'),
             options = list(dom='t',
