@@ -6,3 +6,4 @@ playersPredicted <- .teamsPredictedPower(data = playersNewPredicted_OffDef,actua
   mutate(Player = substr(team_season,1,regexpr("_",team_season)-1),plusMinus = TEAM_PTS-TEAM_PTSAG) %>%
   select(Player,Offense = TEAM_PTS, Defense = TEAM_PTSAG, plusMinus) %>%
   as.data.frame()
+#write.csv(playersPredicted, "cache_global/playersPredicted.csv", row.names = FALSE)

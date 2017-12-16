@@ -6,8 +6,11 @@ win_predictions <- .teamsPredictedWins(data = teamsPredicted)
 teamDashboard <- merge(teamsPredicted, win_predictions, by.x = "TeamCode", by.y = "team") %>%
   select(Tm = TeamCode, TeamOffense = TEAM_PTS, TeamDefense = TEAM_PTSAG, Season, wins)
 teamRanks <- mutate_if(teamDashboard, is.numeric, function(x) row_number(desc(x)))
+#write.csv(teamDashboard, "cache_global/teamDashboard.csv", row.names=FALSE)
+#write.csv(teamRanks, "cache_global/teamRanks.csv", row.names=FALSE)
 
 teamStats <- .computeTeamStats(data = playersPredictedStats_adjPer)
+#write.csv(teamStats, "cache_global/teamStats.csv", row.names=FALSE)
 teamStatRanks <- mutate_if(teamStats, is.numeric, function(x) row_number(desc(x)))
 teamRanks <- merge(teamStatRanks, select(teamRanks,-Season),by="Tm")
 teamMax <- summarise_if(teamStats, is.numeric, max)

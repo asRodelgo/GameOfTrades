@@ -1,7 +1,7 @@
 ---
 title: "Game Of Trades"
 resource_files:
-- global.R
+- global_cache.R
 - helpers.R
 - shiny_server_helpers.R
 - images/nnet_Defense.png
@@ -16,7 +16,8 @@ output:
 
 ```{r setup, include=FALSE}
 
-source("global.R", local = TRUE)
+#source("global.R", local = TRUE)
+source("global_cache.R", local = TRUE)
 
 ###########################
 # Reactive Values for Trade Market
