@@ -102,7 +102,6 @@ teamDashboard <- read.csv("cache_global/teamDashboard.csv", stringsAsFactors = F
 teamRanks <- read.csv("cache_global/teamRanks.csv", stringsAsFactors = FALSE)
 teamStats <- read.csv("cache_global/teamStats.csv", stringsAsFactors = FALSE)
 teamStatRanks <- mutate_if(teamStats, is.numeric, function(x) row_number(desc(x)))
-teamRanks <- merge(teamStatRanks, select(teamRanks,-Season),by="Tm")
 teamMax <- summarise_if(teamStats, is.numeric, max)
 # t-SNE for teams
 tsne_ready_teams <- read.csv("data/tsne_ready_teams.csv", stringsAsFactors = FALSE)
