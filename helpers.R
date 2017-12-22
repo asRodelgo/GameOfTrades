@@ -492,7 +492,7 @@ simulate_n_seasons <- function(num_sim = 1) {
 
 .getConferenceStandings <- function(conf,day){
   
-  standings <- regSeasonOutcome[[1]]
+  #standings <- regSeasonOutcome[[1]]
   #day <- length(standings)
   confPredStandings <- arrange(filter(select(standings[[day]], conference, team,W=win,L=lose,`%W Home`=win_home_perc,`%W Conf`=win_conf_perc,
                                              PTS=avg_pts,PTSA=avg_pts_ag,Strk=streak), conference == conf), desc(W/(W+L)))
@@ -504,7 +504,7 @@ simulate_n_seasons <- function(num_sim = 1) {
 
 .getGames <- function(conf,this_day){
   
-  games <- regSeasonOutcome[[2]]
+  #games <- regSeasonOutcome[[2]]
   #day <- length(standings)
   confPredGames <- dplyr::select(filter(games,day==this_day), away_team,home_team,
                                  away_points,home_points) %>%
@@ -516,7 +516,7 @@ simulate_n_seasons <- function(num_sim = 1) {
 
 .getGameProbability <- function(conf,this_day){
   
-  games <- regSeasonOutcome[[2]]
+  #games <- regSeasonOutcome[[2]]
   #day <- length(standings)
   confPredGamesProbs <- filter(games,day==this_day) %>% 
     select(away_team,home_team,away_points,home_points) %>%

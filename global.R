@@ -117,5 +117,11 @@ conferences <- read.csv("data/nba_conferences.csv", stringsAsFactors = FALSE) # 
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
 regSeasonOutcome <- .standings(real=TRUE)
-list.save(regSeasonOutcome, "cache_global/regSeasonOutcome.rds")
+standings <- regSeasonOutcome[[1]]
+games <- regSeasonOutcome[[2]]
+#write.csv(standings, "cache_global/standings.csv", row.names = FALSE)
+write.csv(games, "cache_global/games.csv", row.names = FALSE)
+list.save(standings, "cache_global/standings.rds")
+
+
 

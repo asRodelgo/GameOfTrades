@@ -98,6 +98,8 @@ avgAway <- mean(as.numeric(gameScores$pts_away), na.rm = TRUE)
 global_mean <- mean(c(as.numeric(gameScores$pts_home),as.numeric(gameScores$pts_away)), na.rm = TRUE)
 home_away_factor <- avgHome - avgAway # how many extra points does a team score on average when playing home
 # Teams Predicted powers and wins
+teamsPredicted <- read.csv("cache_global/teamsPredicted.csv", stringsAsFactors = FALSE)
+win_predictions <- read.csv("cache_global/win_predictions.csv", stringsAsFactors = FALSE)
 teamDashboard <- read.csv("cache_global/teamDashboard.csv", stringsAsFactors = FALSE)
 teamRanks <- read.csv("cache_global/teamRanks.csv", stringsAsFactors = FALSE)
 teamStats <- read.csv("cache_global/teamStats.csv", stringsAsFactors = FALSE)
@@ -111,5 +113,6 @@ tsne_ready_teams <- read.csv("data/tsne_ready_teams.csv", stringsAsFactors = FAL
 conferences <- read.csv("data/nba_conferences.csv", stringsAsFactors = FALSE) # Same as franchises 
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
-list.load("cache_global/regSeasonOutcome.rds")
+standings <- list.load("cache_global/standings.rds")
+games <- read.csv("cache_global/games.csv", stringsAsFactors = FALSE)
 

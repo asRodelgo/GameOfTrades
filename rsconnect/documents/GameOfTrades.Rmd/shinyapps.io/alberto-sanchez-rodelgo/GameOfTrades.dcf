@@ -1,0 +1,12 @@
+name: GameOfTrades
+title: GameOfTrades
+username:
+account: alberto-sanchez-rodelgo
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 249601
+bundleId: 1148306
+url: https://alberto-sanchez-rodelgo.shinyapps.io/GameOfTrades/
+when: 1513978504.14519
+asMultiple: FALSE
+asStatic: FALSE
