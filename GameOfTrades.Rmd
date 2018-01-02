@@ -553,6 +553,7 @@ output:
     orientation: rows
     theme: flatly
     vertical_layout: fill
+    source_code: "https://github.com/asRodelgo/GameOfTrades"
 ---
 
 ```{r setup, include=FALSE}
@@ -575,6 +576,49 @@ values$teamsTSNE <- tsne_ready_teams
 ###########################
 
 ```
+
+Introduction
+=====================================
+
+### Introduction
+
+In this paper I present a method to evaluate the impact of trades for NBA teams. Assessing the potential impact of trades is a complex task as it affects not only the composition of the teams involved but also the rest of the league. For instance, the Kyrie Irving – Isaiah Thomas trade will change the number of wins Cleveland and Boston obtain but also has ripple effects and will alter the number of wins for any team playing these 2 teams on the regular season.
+
+Briefly, this is the idea: first, I need to predict how good each player will be for the upcoming season and what will their playing time be. Second, I will estimate the offensive and defensive power of each team given the team roster and players’ minute share. Assuming the number of points a team scores follows a Normal distribution, with means the offensive and defensive powers and variance estimated from historical data. Once the density distribution is fully determined, I can calculate the probability of any matchup and thus the total number of wins in the regular season. 
+
+In the first part of the paper I will describe the proposed model and methodology. The second part is mostly devoted to examples and use cases. I developed an R Shiny dashboard  that I use to interact with the model and the data. I recommend the reader to play along with it as you read the paper for a better experience. All the code is available on my Github account.
+
+### The Data
+
+The basis of every statistical analysis in the paper is players’ main measurable stats. My only source of data is basketball-refence.com. Although there are plenty of advanced statistics available on basketball-reference and other sites, my goal was to have as many years of consistent stats as possible for all NBA, European and College players so to have a more accurate learning from the data. For this purpose, I collect data from season 1979-1980 where 3-point stats were first recorded. In addition, I avoid stats that are not measurable from a player direct action, like box plus-minus. So, here are the list of stats I use  throughout the paper: 
+
+Age, G, MP, FG, FGA, FG%, 3PM, 3PA, 3P%, 2PM, 2PA, 2P%, eFG%, FT, FTA, FT%, ORB, DRB, TRB, AST, STL, BLK, TOV, PF, PTS  
+
+These variables measure per game stats but my interest and the key to the whole analysis is in stats per minute. After adjusting from per game to per minute stats, I use the following nomenclature:
+
+Age, FGPer, FG3Per, FG2Per, effFGPer, FTPer, effMin, effFG, effFGA, eff3PM, eff3PA, eff2PM, eff2PA, effFTM, effFTA, effORB, effDRB, effTRB, effAST, effSTL, effBLK, effTOV, effPF, effPTS
+
+### The Model
+
+My objective is to predict how many games an NBA team will win in the regular season, given a set of players. Because wins depend on the capacity of teams to score points and to not receive them (Gelman, 2014)[2], I will instead predict the number of points an NBA team will score (offensive power) or allow (defensive power) on average during the regular season. 
+
+<strong>Neural Network model</strong>
+
+For each offensive and defensive power I will use the output of a Neural Network. My inputs are the weighted average of players' projected per minute stats, where the weights are their share of minutes of play. Here are the steps I take:
+	Read historical players stats per game starting with season 1979-1980  
+	Player name is my primary key so I need to differentiate players with the same name. I add a number after the name in ascending order (the younger the higher the number). Example: Tim Hardaway who played in the 90s vs. Tim Hardaway 2 (current NYK player) .
+	Calculate stats per minute of play (effBLK, eff3PM, etc) for each player I of a total of 496 .
+	$effStat_i=effStat_i/PM_i$ 	(1)
+And effective minutes as MP (minutes played) over total possible minutes (48 minutes in 82 games): 
+	$effMin_i=PM_i/(82×48)$	(2)
+Finally, adjust effMin for each player relative to total minutes played by team Tm: 
+	$effMin_i=effMin_i/(∑(i ∈Tm)effMin_i )$	(3)
+	The input vectors for the neural network are the weighted average of all stats per team per season. The weights are the effective minutes. The total size of the resulting input vector is 1,063.
+	$effStat_t=∑(i∈Tm_t)effStat_i×effMin_i$	(4)
+	Remove columns that have linear dependencies with others: FG, FGA, FG%, 3P%, 2P%, FT%, effFG%, effPTS and scale the data to [0,1] for easier convergence of back-propagation algorithm [4].
+	I use a 75-25% split for the training-testing samples and a 10-fold cross-validation with 10 repetitions (leave one out).  
+	I train a regression neural network with 3 layers using the neuralnet [12] R package under default parameters defined by the caret [11] package. See Appendix A.1 for details.
+
 
 Players
 =====================================
@@ -1978,25 +2022,6 @@ plotDistribTime <- reactive({
 renderDataTable(plotDistribTime())
 
 ```
-
-<!-- ### Distribution of play time -->
-<!-- ```{r} -->
-<!-- plotDistribTime <- reactive({ -->
-
-<!--   topMinShare <- .minutes_density(playersHist,input$pastSeasons) -->
-<!--   averageShare <- group_by(topMinShare,Season) %>% -->
-<!--     summarise_if(is.numeric, mean) %>% -->
-<!--     ungroup() %>% -->
-<!--     summarise_if(is.numeric, mean) -->
-<!--   incrementShare <- gather(averageShare,top_n,percent) -->
-
-<!--   plot(seq(18,1,-1),incrementShare$percent, xlab = "top n players", ylab = paste0("Accumulated % time (last ",input$pastSeasons,")")) -->
-
-<!-- }) -->
-
-<!-- renderPlot(plotDistribTime()) -->
-
-<!-- ``` -->
 
 t-SNE explorer
 ======================================
