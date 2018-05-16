@@ -527,19 +527,19 @@ write_rookiesHist <- function(){
 }
 
 # writer college players historical data
-write_collegePlayersHist <- function(){
+write_collegePlayersHist <- function(col_G = 15,num_pages = 30,firstDraft = 1994,lastDraft=2018){
   # Read stats from college players and match to drafted players
   # query college players who played at least col_G games. Min per games not recorded before 2009
-  col_G <- 15
-  num_pages <- 30
+  #col_G <- 15
+  #num_pages <- 30
   # First 100 sorted desc by Total Points: 
   # http://www.sports-reference.com/cbb/play-index/psl_finder.cgi?request=1&match=single&year_min=1994&year_max=1994&conf_id=&school_id=&class_is_fr=Y&class_is_so=Y&class_is_jr=Y&class_is_sr=Y&pos_is_g=Y&pos_is_gf=Y&pos_is_f=Y&pos_is_fg=Y&pos_is_fc=Y&pos_is_c=Y&pos_is_cf=Y&games_type=A&qual=&c1stat=g&c1comp=gt&c1val=15&c2stat=&c2comp=gt&c2val=&c3stat=&c3comp=gt&c3val=&c4stat=&c4comp=gt&c4val=&order_by=pts
   # subsequent players in batches of 100:
   # http://www.sports-reference.com/cbb/play-index/psl_finder.cgi?request=1&match=single&year_min=1994&year_max=1994&conf_id=&school_id=&class_is_fr=Y&class_is_so=Y&class_is_jr=Y&class_is_sr=Y&pos_is_g=Y&pos_is_gf=Y&pos_is_fg=Y&pos_is_f=Y&pos_is_fc=Y&pos_is_cf=Y&pos_is_c=Y&games_type=A&qual=&c1stat=g&c1comp=gt&c1val=15&c2stat=&c2comp=gt&c2val=&c3stat=&c3comp=gt&c3val=&c4stat=&c4comp=gt&c4val=&order_by=pts&order_by_asc=&offset=100
   
-  lastDraft <- as.numeric(substr(max(as.character(playersHist$Season)),1,4)) + 1
+  #lastDraft <- as.numeric(substr(max(as.character(playersHist$Season)),1,4)) + 1
   
-  firstDraft <- 1994
+  #firstDraft <- 1994
   collegePlayersHist <- data.frame()
   
   for (season in (firstDraft-1):(lastDraft-1)){
@@ -927,6 +927,44 @@ write_rookieEfficientStats <- function() {
   rookieEffStats <- as.data.frame(rookieEffStats)
   
   write.csv(rookieEffStats, "data/rookieEfficientStats.csv", row.names = FALSE)
+}
+
+# Once per game stats have been compiled for all college players compute their
+# per-minute stats
+# imports collegePlayers.csv
+write_collegeEfficientStats <- function() {
+  
+  collegePlayers <- read.csv("data/collegePlayers.csv", stringsAsFactors = FALSE)
+  # In college and Europe they play 40-min game. I will calculate their pre-minute stats
+  # based on a 48-min game as the "price" for being a rookie in the NBA
+  collegeEffStats <- collegePlayers %>%
+    group_by(Player) %>%
+    mutate(Age = ifelse(Class == "SR", 22, ifelse(Class == "JR", 21, ifelse(Class == "SO", 20, 19)))) %>%
+    summarise_if(is.numeric, mean) %>%
+    mutate(Age = ceiling(Age), effMin = MP/3936, effFG = FG/(3936*effMin),
+           effFGA = FGA/(3936*effMin),eff3PM = X3P/(3936*effMin),eff3PA = X3PA/(3936*effMin),
+           eff2PM = X2P/(3936*effMin),eff2PA = X2PA/(3936*effMin),
+           effFTM = FT/(3936*effMin),effFTA = FTA/(3936*effMin),
+           effORB = ORB/(3936*effMin),effDRB = DRB/(3936*effMin),
+           effTRB = TRB/(3936*effMin),effAST = AST/(3936*effMin),
+           effSTL = STL/(3936*effMin),effBLK = BLK/(3936*effMin),
+           effTOV = TOV/(3936*effMin),effPF = PF/(3936*effMin),
+           FGPer = FG/FGA,FG3Per = X3P/X3PA, FG2Per = X2P/X2PA,FTPer = FT/FTA,
+           effPTS = PTS/(3936*effMin)) %>%
+    dplyr::select(Player,Age,effFGPer = eFG.,
+                  starts_with("eff"),
+                  -G,-MP,FG,-FGA,-X3P,-X3PA,-X2P,-X2PA,-FG,-FTA,-ORB,-DRB,-TRB,-AST,
+                  -BLK,-TOV,-PF,-FT,-STL,-PTS)
+  
+  # Impute NAs by 0. If NA means no shot attempted, ie, 
+  # either the player didn't play enough time or is really bad at this particular type of shot.
+  for (i in 5:ncol(collegeEffStats)){
+    collegeEffStats[is.na(collegeEffStats[,i]),i] <- 0
+  }
+  
+  collegeEffStats <- as.data.frame(collegeEffStats)
+  
+  write.csv(collegeEffStats, "data/collegeEffStats.csv", row.names = FALSE)
 }
 
 ########## SEASON ###########
