@@ -371,23 +371,20 @@ write_tsne_ready_newSeason <- function(){
 
 # Write team stats by season. 
 # Imports: playersHist.csv
-write_teamStats <- function() {
+write_teamStats <- function(what_season = thisYear) {
   require(httr)
   require(tidyverse)
   library(rvest)
   thisYear <- substr(Sys.Date(),1,4)
   playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE)
   
-  ##### ALL SEASONS ########
-  firstYear <- 1979
-  
-  ##### NEW SEASON ########
-  firstYear <- thisYear
+  ### Return data starting from input season 
+  firstYear <- as.numeric(what_season)
   
   # Read teams stats for all seasons
   teamStats <- data.frame()
   lastSeason <- as.numeric(substr(max(as.character(playersHist$Season)),1,4))
-  for (year in firstYear:thisYear){
+  for (year in firstYear:as.numeric(thisYear)){
     url <- paste0("http://www.basketball-reference.com/leagues/NBA_",year,".html")
     # Eastern conference
     thisSeasonStats <- url %>%
@@ -413,9 +410,9 @@ write_teamStats <- function() {
     #thisSeasonStats <- thisSeasonStats[!(thisSeasonStats$W=="W"),]
     #thisSeasonStats <- thisSeasonStats[!grepl("division",tolower(thisSeasonStats[,1])),]
     thisSeasonStats <- select(thisSeasonStats, -`W/L%`, -GB)
-    thisSeasonStats <- mutate_each(thisSeasonStats, funs(as.numeric), -Team)
+    thisSeasonStats <- mutate_if(thisSeasonStats, is.numeric, funs(as.numeric))
     thisSeasonStats$Team <- gsub("\\*?\\([0-9]+\\)","",thisSeasonStats$Team)
-    thisSeasonStats$Team <- gsub("*","",trim,fixed = TRUE)
+    thisSeasonStats$Team <- gsub("*","",thisSeasonStats$Team,fixed = TRUE)
     thisSeasonStats$Team <- trimws(thisSeasonStats$Team)
     names(thisSeasonStats) <- gsub("PS/G","PTS",names(thisSeasonStats))
     names(thisSeasonStats) <- gsub("PA/G","PTSA",names(thisSeasonStats))
@@ -431,10 +428,15 @@ write_teamStats <- function() {
       teamStats <- thisSeasonStats
     }
   }
-  
+  # remove strange characters
+  teamStats$Team <- gsub(" ","",teamStats$Team)
+  # append to existing file when last year is selected
   if (firstYear==thisYear) {
-    teamStatsOLD <- read.csv("data/teamStats.csv", stringsAsFactors = FALSE)
-    teamStats <- bind_rows(teamStatsOLD,teamStats)
+      teamStatsOLD <- read.csv("data/teamStats.csv", stringsAsFactors = FALSE)
+      # in case this script is run several times don't want to duplicate records
+      if (max(teamStats$Season) > max(teamStatsOLD$Season)) { 
+        teamStats <- bind_rows(teamStatsOLD,teamStats)
+      }
   } 
   
   write.csv(teamStats, "data/teamStats.csv",row.names = FALSE)
@@ -1006,6 +1008,8 @@ write_realSeasonSchedule <- function(){
     thisMonthSchedule <- thisMonthSchedule[[1]]
     season_schedule <- bind_rows(season_schedule,thisMonthSchedule)
   }
+  # remove empty column names if any
+  season_schedule <- season_schedule[,!duplicated(colnames(season_schedule))]
   season_schedule <- dplyr::select(season_schedule, Date,StartTime=`Start (ET)`,
                                    teamH=`Home/Neutral`, teamA=`Visitor/Neutral`)
   

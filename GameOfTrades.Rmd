@@ -1615,7 +1615,7 @@ Row {.sidebar}
 
 ```{r}
 #selectizeInput('regSeasonDay', 'Select a day:', choices=datesRange, selected = datesRange[1])
-dateInput('regSeasonDay', 'Select a day:', min=datesRange[1], max = datesRange[length(datesRange)],startview = 'month')
+dateInput('regSeasonDay', 'Select a day:', min=datesRange[1], max = datesRange[length(datesRange)],startview = 'month', value = ifelse(datesRange[length(datesRange)] > Sys.Date(), datesRange[length(datesRange)], ifelse(datesRange[1] > Sys.Date(), datesRange[1],Sys.Date())))
 
 ```
 
