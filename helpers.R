@@ -1845,10 +1845,12 @@ simulate_n_seasons <- function(num_sim = 1) {
 }
 
 # compute effective stats for all seasons. Uses playersHist
-.team_prepareAll <- function(){
+.team_prepareAll <- function(recalculatePlayerHist = FALSE){
   
-  playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE) # read historical players from write_playersHist.R
-  playersHist <- .rename_PlayerDuplicates(playersHist) # differentiate different players with the same name
+  if (recalculatePlayerHist) { # do I update playersHist?
+    playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE) # read historical players from write_playersHist.R
+    playersHist <- .rename_PlayerDuplicates(playersHist) # differentiate different players with the same name 
+  }
   
   data_team <- playersHist %>%
     group_by(Player,Season) %>%

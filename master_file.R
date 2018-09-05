@@ -59,6 +59,26 @@ for (a in 18:41){
 write_realSeasonSchedule()
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
+#
+# Save Neural Network model to be loaded at the start
+## CHECK OUT PARAMETERS AND DATA SNOOPING!!
+library(rlist) # write list as file
+# compute models
+nn_Offense <- .selectedModel("PTS")
+nn_Defense <- .selectedModel("PTSA")
+# save models
+list.save(nn_Offense, "data/nn_Offense.rds")
+list.save(nn_Defense, "data/nn_Defense.rds")
+# neuralnet default parameters:
+#   neuralnet(formula, data, hidden = 1, threshold = 0.01,
+#             stepmax = 1e+05, rep = 1, startweights = NULL,
+#             learningrate.limit = NULL,
+#             learningrate.factor = list(minus = 0.5, plus = 1.2),
+#             learningrate=NULL, lifesign = "none",
+#             lifesign.step = 1000, algorithm = "rprop+",
+#             err.fct = "sse", act.fct = "logistic",
+#             linear.output = TRUE, exclude = NULL,
+#             constant.weights = NULL, likelihood = FALSE)
 
 
 
