@@ -2519,6 +2519,8 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   }
   
   # scale the data for easier convergence of backpropagation algorithm
+  # This stinks data snooping although nba data is pretty consistent across years and teams so 
+  # I don't think it will matter much. Just saying...
   maxs <- apply(playersSumm[,-1], 2, max) 
   mins <- apply(playersSumm[,-1], 2, min)
   scaleMaxMin <- data.frame(maxs,mins)
@@ -2662,7 +2664,7 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
 }
 
 # Once a model is selected, use this function to calculate team powers
-.selectedModel <- function(Off_or_Def,removeEffMin = TRUE) {
+.selectedModel <- function(Off_or_Def,removeEffMin = TRUE,perc_train_sample = .8, hidden_layers = c(6,4,2)) {
   
   playersSumm <- .prepareModel(Off_or_Def, removeEffMin)
   # scale the data for easier convergence of backpropagation algorithm
@@ -2676,9 +2678,9 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   
   # train_split: number of teams or percentage of data in training set
   set.seed(450)
-  perc <- 0.80
+  perc <- perc_train_sample
   train_split <- round(perc*nrow(playersSumm))
-  hidden_neurons <- c(6,4,2)
+  hidden_neurons <- hidden_layers
   #c(4,2)
   #c(6,4,2)
   # neuralnet requires explicit formula for the model (f)

@@ -63,9 +63,11 @@ datesRange <- unique(realSeasonSchedule$Date)
 # Save Neural Network model to be loaded at the start
 ## CHECK OUT PARAMETERS AND DATA SNOOPING!!
 library(rlist) # write list as file
-# compute models
-nn_Offense <- .selectedModel("PTS")
-nn_Defense <- .selectedModel("PTSA")
+### Test different models using .computeModel_neuralnet()
+### Once the right model is selected plug it as parameters (split train-test percentage & hidden layers)
+# to the .selectedModel() function and run:
+nn_Offense <- .selectedModel("PTS", perc_train_sample = .8, hidden_layers = c(6,4,2))
+nn_Defense <- .selectedModel("PTSA", perc_train_sample = .8, hidden_layers = c(6,4,2))
 # save models
 list.save(nn_Offense, "data/nn_Offense.rds")
 list.save(nn_Defense, "data/nn_Defense.rds")
