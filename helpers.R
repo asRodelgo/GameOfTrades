@@ -2427,7 +2427,7 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
     mutate(team_season = paste0(teamCode,"_",Season))
   team_stats2 <- team_stats2[,!(names(team_stats2) %in% c("Team","teamCode","Season"))]
   # merge
-  playersSumm <- merge(playersSumm, team_stats2[,c("team_season",Off_or_Def)], by = "team_season", all.x=TRUE)
+  playersSumm <- merge(playersSumm, team_stats2[,c("team_season",Off_or_Def)], by = "team_season")
   
   # No matter if I calculate Off or Def pts per season, I call this variable PTS for practical purposes
   names(playersSumm)[ncol(playersSumm)] <- "PTS" 
@@ -2613,7 +2613,7 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   
   ###
   set.seed(998)
-  perc <- 0.75
+  perc <- 0.8
   train_split <- round(perc*nrow(playersSumm))
   
   teams_train <- sample(playersSumm$team_season,train_split)
@@ -2658,7 +2658,7 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   #save(model, file = paste0("data/model_","nnetFit","_",Sys.Date(),".Rdata"))
   predict_data <- training
   predicted <- predict(model, newdata = predict_data)
-  save(model, file = paste0("data/modelNeuralnet5_",Off_or_Def,".Rdata"))
+  save(model, file = paste0("data/modelNeuralnet19_",Off_or_Def,".Rdata"))
   predictions <- data.frame(actual_PTS = predict_data$PTS, predicted_PTS = predicted)
   plot(predictions)
 }

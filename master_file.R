@@ -61,16 +61,24 @@ realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = 
 datesRange <- unique(realSeasonSchedule$Date)
 #
 # Save Neural Network model to be loaded at the start
-## CHECK OUT PARAMETERS AND DATA SNOOPING!!
 library(rlist) # write list as file
-### Test different models using .computeModel_neuralnet()
-### Once the right model is selected plug it as parameters (split train-test percentage & hidden layers)
+### STEP 1: Test different models using .computeModel_neuralnet()
+### STEP 2: Once the right model is selected plug it as parameters (split train-test percentage & hidden layers)
 # to the .selectedModel() function and run:
-nn_Offense <- .selectedModel("PTS", perc_train_sample = .8, hidden_layers = c(6,4,2))
-nn_Defense <- .selectedModel("PTSA", perc_train_sample = .8, hidden_layers = c(6,4,2))
+.computeModel_neuralnet("PTS")
+.computeModel_neuralnet("PTSA")
+
+#nn_Offense <- .selectedModel("PTS", perc_train_sample = .8, hidden_layers = c(6,4,2))
+#nn_Defense <- .selectedModel("PTSA", perc_train_sample = .8, hidden_layers = c(6,4,2))
 # save models
-list.save(nn_Offense, "data/nn_Offense.rds")
-list.save(nn_Defense, "data/nn_Defense.rds")
+#list.save(nn_Offense, "data/nn_Offense.rds")
+#list.save(nn_Defense, "data/nn_Defense.rds")
+#
+# load neuralnet models
+load("data/modelNeuralnet19_PTS.Rdata")
+nn_Offense <- model$finalModel
+load("data/modelNeuralnet19_PTSA.Rdata")
+nn_Defense <- model$finalModel
 # neuralnet default parameters:
 #   neuralnet(formula, data, hidden = 1, threshold = 0.01,
 #             stepmax = 1e+05, rep = 1, startweights = NULL,
@@ -81,7 +89,10 @@ list.save(nn_Defense, "data/nn_Defense.rds")
 #             err.fct = "sse", act.fct = "logistic",
 #             linear.output = TRUE, exclude = NULL,
 #             constant.weights = NULL, likelihood = FALSE)
+#
+# Adjusting players skills
 
+write_playersNewPredicted()
 
 
 
