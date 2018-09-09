@@ -545,6 +545,7 @@ write_collegePlayersHist <- function(col_G = 15,num_pages = 30,firstDraft = 1994
   collegePlayersHist <- data.frame()
   
   for (season in (firstDraft-1):(lastDraft-1)){
+    print(paste0("Processing season: ",season))
     
     url <- paste0("http://www.sports-reference.com/cbb/play-index/psl_finder.cgi?request=1&match=single&year_min=",
                   season,"&year_max=",season,"&conf_id=&school_id=&class_is_fr=Y&class_is_so=Y&class_is_jr=Y&class_is_sr=Y&pos_is_g=Y&pos_is_gf=Y&pos_is_f=Y&pos_is_fg=Y&pos_is_fc=Y&pos_is_c=Y&pos_is_cf=Y&games_type=A&qual=&c1stat=g&c1comp=gt&c1val=",
@@ -561,6 +562,7 @@ write_collegePlayersHist <- function(col_G = 15,num_pages = 30,firstDraft = 1994
     collegePlayers$Rk <- as.numeric(collegePlayers$Rk)
     
     for (page in 1:(num_pages-1)){ # read a total of num_pages*100 college players
+      print(paste0("Processing page: ",page))
       url <- paste0("http://www.sports-reference.com/cbb/play-index/psl_finder.cgi?request=1&match=single&year_min=",
                     season,"&year_max=",season,"&conf_id=&school_id=&class_is_fr=Y&class_is_so=Y&class_is_jr=Y&class_is_sr=Y&pos_is_g=Y&pos_is_gf=Y&pos_is_f=Y&pos_is_fg=Y&pos_is_fc=Y&pos_is_c=Y&pos_is_cf=Y&games_type=A&qual=&c1stat=g&c1comp=gt&c1val=",
                     col_G,"&c2stat=&c2comp=gt&c2val=&c3stat=&c3comp=gt&c3val=&c4stat=&c4comp=gt&c4val=&order_by=pts&order_by_asc=&offset=",

@@ -3,7 +3,6 @@
 
 ##### INITIAL LOADS ------------------------------------
 # Load packages, global variables, functions
-
 library(flexdashboard)
 library(tidyverse)
 library(DT)
@@ -12,6 +11,8 @@ library(shinyjs)
 library(caret)
 library(neuralnet) # neural network for regression
 library(rlist) # write list as file
+library(httr)
+library(rvest)
 
 # variables set up
 thisYear <- substr(Sys.Date(),1,4)
@@ -168,6 +169,96 @@ playersNewPredicted_Final <- bind_rows(playerSet_aPlusc,playerSet_Leftover)
 checkFinalRosters <- merge(playersNewPredicted_Final,current_rosters, by="Player", all.x = TRUE)
 # Write final file:
 write.csv(playersNewPredicted_Final, "data/playersNewPredicted_FINAL.csv",row.names = FALSE)
+#
+#
+################ Compute powers ################# 
+#
+#
+# write college players History
+write_collegePlayersHist(col_G = 15,num_pages = 30,firstDraft = 1994,lastDraft=as.numeric(thisYear))
+collegePlayersHist <- read.csv("data/collegePlayersHist.csv", stringsAsFactors = FALSE)
+rookiesDraftHist <- read.csv("data/rookiesDraftHist.csv", stringsAsFactors = FALSE)
+#
+# There's a bunch of calculations that I use to estimate certain parameters. 
+# They don't need to be run everytime this script is run, just once every year
+# compute % minutes played per player:
+collegeMinutes <- merge(collegePlayersHist,rookiesDraftHist[,c("Player","Pick","Year")], by = "Player") %>%
+  mutate(perMin = MP/(G*40)) %>%
+  group_by(Player) %>%
+  mutate(perMin = mean(perMin, na.rm=TRUE)) %>% # average minutes played per game in ther college years
+  distinct(Player, .keep_all=TRUE) %>%
+  filter(!is.na(perMin))
+# now do the same for NBA players by experience year
+nbaMinutes <- select(playersHist, Player,Season,Age,Tm,G,MP) %>%
+  filter(!(Tm == "TOT")) %>%
+  group_by(Player) %>%
+  filter(Age == min(Age)) %>% # keep players when they were younger (rookie year)
+  group_by(Player,Season) %>%
+  filter(G >= 30) %>% # played at least 30 games
+  mutate(perMin = mean(MP, na.rm=TRUE)/48) %>%
+  distinct(Player, .keep_all=TRUE)
+# put them together
+college2nbaMinutes <- merge(nbaMinutes,collegeMinutes, by = "Player", all.x = TRUE) %>%
+  mutate(minDiff = perMin.y-perMin.x) %>%
+  filter(!is.na(minDiff))
+# Although Rank is different from Draft pick. Let's see this by draft pick for the top 30 picks:
+plot(college2nbaMinutes$Pick,college2nbaMinutes$minDiff)
+draftMinutesInNBA <- arrange(college2nbaMinutes, desc(Pick)) %>%
+  group_by(Pick) %>%
+  summarise(mean(minDiff)) %>%
+  mutate(Pick = as.numeric(Pick)) %>%
+  arrange(Pick)
+barplot(draftMinutesInNBA$`mean(minDiff)`)
+#
+# add Pick round to rookie players:
+rookiesDraft <- filter(rookiesDraftHist, Year >= as.numeric(thisYear)-2) # get last 3 drafts to include rookies like Ben Simmons who didn't play any minute last season
+playersNewPredicted_Final <- merge(playersNewPredicted_Final, rookiesDraft[,c("Player","Pick")], by="Player",all.x=TRUE)
+# For those not in the draft (international players or non-drafted players), average by the
+# average percentage for the tail of the 2nd round picks (51-60)
+col2nbaMinDiff <- mean(draftMinutesInNBA$`mean(minDiff)`[51:nrow(draftMinutesInNBA)]) 
+playersNewPredicted_Final_adjMin <- mutate(playersNewPredicted_Final,Exp = ifelse(is.na(Exp),"1",Exp),
+                                           Pick = ifelse(is.na(Pick),0,as.numeric(Pick))) %>% # in case Exp is NA for instance returning NBA players
+  group_by(Player) %>%
+  mutate(effMin = ifelse(Pick > 0 & Exp == "R",effMin*(1-draftMinutesInNBA$`mean(minDiff)`[Pick]),
+                         ifelse(Exp == "R",effMin*(1-col2nbaMinDiff),effMin)))
+
+write.csv(playersNewPredicted_Final_adjMin, "data/playersNewPredicted_Final_adjMin.csv", row.names = FALSE)
+# 3. adjust percent of play time -----------------------------------
+# Based on historical data for the last 5 seasons:
+topMinShare <- .minutes_density(playersHist,5)
+averageShare <- group_by(topMinShare,Season) %>%
+  summarise_if(is.numeric, mean) %>%
+  ungroup() %>%
+  summarise_if(is.numeric, mean)
+incrementShare <- gather(averageShare,top_n,percent)
+plot(seq(18,1,-1),incrementShare$percent)
+# top7 seems to be the turning point at 60%, after it, the scale of time every new player adds goes down (slope). 
+# I will use this as estimate. Although the trend is going down, in last 5 seasons, % is 59%
+# because rosters are getting bigger thus utilize more players. Usually top 1 % revolves around 10% 
+playersNewPredicted_Final_adjMin2 <- .redistributeMinutes(playersNewPredicted_Final_adjMin, topHeavy = 7, topMinShare = .6, min_share_top1 = .105)
+# The reason to go top_1 = 1.1 is to give more prominence to star players which adjust better when simulating
+# wins in the regular season
+# make sure Season column shows the new season to come and remove Pick column as i don't need it anymore
+playersNewPredicted_Final_adjMin2 <- mutate(playersNewPredicted_Final_adjMin2, 
+                                            Season = paste0(thisYear,"-",as.numeric(thisYear)+1)) %>%
+  select(-Pick, -Exp) %>%
+  as.data.frame()
+# 4. compute team powers ---------------------------
+# See teams_power.R for details. See if actual effMin matter (double check weighted means)
+# playersNewPredicted_pumped <- mutate(playersNewPredicted_Final_adjMin2, effMin = ifelse(Tm == "UTA",effMin - .002,effMin))
+# teamsPredicted_pumped <- .teamsPredictedPower(data = playersNewPredicted_pumped,actualOrPred="predicted")
+# confrmed: effMin volume matters, I will transform in percentages
+playersNewPredicted_Final_adjMinPer <- group_by(playersNewPredicted_Final_adjMin2, Tm) %>%
+  mutate(effMin = effMin/sum(effMin,na.rm=TRUE)) %>%
+  as.data.frame()
+write.csv(playersNewPredicted_Final_adjMinPer, "data/playersNewPredicted_Final_adjPer.csv", row.names = FALSE)
+#
+###########################################################################################
+####### THE 2 FILES THAT ULTIMATELY CONTAIN ALL THE INFORMATION:
+## playersNewPredicted_Final_adjMin
+## playersNewPredicted_Final_adjMinPer
+###########################################################################################
+
 
 
 
