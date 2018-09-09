@@ -114,7 +114,62 @@ write_collegePlayers()
 # writes: rookieStats.csv, europePlayers.csv
 write_rookieStats_europePlayers()
 rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
+# Once per game stats have been compiled for all rookies (college and international) compute their
+# per-minute stats. Writes: rookieEfficientStats.csv
+write_rookieEfficientStats()
+rookieEffStats <- read.csv("data/rookieEfficientStats.csv", stringsAsFactors = FALSE) %>% # write_Rookies_efficientStats in write_rookiesDraft.R
+  select(-c(Season,Age)) %>% mutate(effFGPer = ifelse(effFGPer <= 0.001,FGPer,effFGPer)) # international players don't have this calculated so their per = 0
 # 
 # next step current_rosters
+# writes: currentRosters.csv
+write_currentRosters_rostersLastSeason()
+current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE) %>% 
+  distinct(Player, .keep_all=TRUE)
+# merge current rosters with players calculated efficient stats
+playerSet_a <- merge(playersNewPredicted,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+playerSet_c <- merge(rookieEffStats,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+playerSet_a_c <- merge(playerSet_a,playerSet_c, by = "Player") # this should be empty
+playerSet_aPlusc <- bind_rows(playerSet_a,playerSet_c)  %>% distinct(Player,.keep_all=TRUE)
+# players whose names didn't match come from merging playerSetaPlusc and current_rosters
+playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = TRUE)  %>% distinct(Player,.keep_all=TRUE) %>%
+  filter(is.na(Tm.y)) %>% select(Player, Age.x)
+
+# This is the final list of unmatched players who actually played last season:
+# May be more (check out playerSet_b file)
+current_rosters[which(current_rosters$Player == "Gary Payton II"),]$Player <- "Gary Payton 2"
+current_rosters[which(current_rosters$Player == "Glenn Robinson III"),]$Player <- "Glenn Robinson 2"
+current_rosters[which(current_rosters$Player == "Kelly Oubre Jr."),]$Player <- "Kelly Oubre"
+current_rosters[which(current_rosters$Player == "Larry Nance Jr."),]$Player <- "Larry Nance 2"
+current_rosters[which(current_rosters$Player == "Nene"),]$Player <- "Nene Hilario"
+current_rosters[which(current_rosters$Player == "Taurean Prince"),]$Player <- "Taurean Waller-Prince"
+current_rosters[which(current_rosters$Player == "Tim Hardaway Jr."),]$Player <- "Tim Hardaway 2"
+current_rosters[which(current_rosters$Player == "Dennis Smith Jr."),]$Player <- "Dennis Smith"
+current_rosters[which(current_rosters$Player == "Derrick Jones Jr."),]$Player <- "Derrick Jones"
+current_rosters[which(current_rosters$Player == "Frank Mason III"),]$Player <- "Frank Mason"
+# run again sets a to c
+playerSet_a <- merge(playersNewPredicted,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+playerSet_c <- merge(rookieEffStats,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+playerSet_a_c <- merge(playerSet_a,playerSet_c, by = "Player") # this should be empty
+playerSet_aPlusc <- bind_rows(playerSet_a,playerSet_c)  %>% distinct(Player,.keep_all=TRUE) %>%
+  select(Player,Pos,Season, Age,Tm=Tm.y,Exp,contains("Per"),contains("eff"))
+# players whose names didn't match come from merging playerSetaPlusc and current_rosters
+playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = TRUE)  %>% distinct(Player,.keep_all=TRUE) %>%
+  filter(is.na(Tm.y)) %>% select(Player, Pos = Pos.x, Age = Age.x, Tm = Tm.x, Exp = Exp.x)
+# now this final set of non matched players correspond to those with a history in the NBA but didn't play in last season
+# Next step is to calculate their predicted stats and add them to the final set
+playerSet_Leftover <- .computePredictedPlayerStats_Leftovers(playerSet_b) # from compute_PredictedLeftovers.R
+write.csv(playerSet_Leftover,"data/playerPredicted_Leftover.csv", row.names = FALSE)
+playerSet_Leftover <- read.csv("data/playerPredicted_Leftover.csv", stringsAsFactors = FALSE)
+playerSet_Leftover <- mutate(playerSet_Leftover, Season = current_rosters$Season[1]) %>%
+  mutate_at(vars(contains("Per")), function(x) ifelse(x >= 1, mean(x, na.rm=TRUE), x)) # to avoid players with 100% shot accuracy (because they may have taken just very few shots and converted all)
+# Now append together playerSetaPlusc and playerSet_Leftover for the final players stats predicted for new season
+playersNewPredicted_Final <- bind_rows(playerSet_aPlusc,playerSet_Leftover)
+# check this file has same rows as current_rosters
+checkFinalRosters <- merge(playersNewPredicted_Final,current_rosters, by="Player", all.x = TRUE)
+# Write final file:
+write.csv(playersNewPredicted_Final, "data/playersNewPredicted_FINAL.csv",row.names = FALSE)
+
+
+
 
 

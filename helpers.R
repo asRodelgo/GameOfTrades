@@ -578,7 +578,7 @@ simulate_n_seasons <- function(num_sim = 1) {
 }
 
 # when all players have been updated and predicted, only leftovers remain (players who were NBA at some point
-# and return after 1 or more absent seasons)
+# and return after 1 or more seasons absent)
 .computePredictedPlayerStats_Leftovers <- function(thesePlayers) {
   
   # update currentRosters, europePlayers and College players from write_rookiesDraft.R
