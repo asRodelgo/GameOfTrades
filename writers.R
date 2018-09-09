@@ -115,11 +115,11 @@ write_currentRosters_rostersLastSeason <- function(previousSeason = FALSE){
 write_playersNewPredicted <- function() {
   
   # update currentRosters, europePlayers and College players from write_rookiesDraft.R
-  current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE)
-  rookies <- read.csv("data/rookies.csv",stringsAsFactors = FALSE)
-  collegePlayers <- read.csv("data/collegePlayers.csv", stringsAsFactors = FALSE)
-  rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
-  europePlayers <- read.csv("data/europePlayers.csv", stringsAsFactors = FALSE)
+  #current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE)
+  #rookies <- read.csv("data/rookies.csv",stringsAsFactors = FALSE)
+  #collegePlayers <- read.csv("data/collegePlayers.csv", stringsAsFactors = FALSE)
+  #rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
+  #europePlayers <- read.csv("data/europePlayers.csv", stringsAsFactors = FALSE)
   playersNew <- playersHist %>%
     filter(Season == max(as.character(Season))) %>%
     mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
@@ -208,7 +208,7 @@ write_playersNewPredicted <- function() {
   limitMinutes <- 2*quantile(playersNewPredicted$effMin,.95) # control for possible outliers
   defaultMinutes <- quantile(playersNewPredicted$effMin,.1) # assign low minutes to outliers as they most likely belong to players with very little playing time
   playersNewPredicted2 <- mutate(playersNewPredicted,effMin = ifelse(effMin > limitMinutes, defaultMinutes,effMin))
-  write.csv(playersNewPredicted2, "data/playersNewPredicted_Oct20.csv", row.names = FALSE)
+  write.csv(playersNewPredicted2, "data/playersNewPredicted_Sep8_18.csv", row.names = FALSE)
 }  
 
 # pre-calculate tsne points for all players and seasons
@@ -660,7 +660,8 @@ write_rookiesDraftHist <- function(){
   for (d in (lastDraft-20):lastDraft) {
     
     url <- paste0("http://www.basketball-reference.com/draft/NBA_",d,".html")
-    
+    require(httr)
+    require(rvest)
     thisSeasonDraft <- url %>%
       read_html() %>%
       html_nodes(xpath='//*[@id="stats"]') %>%
@@ -777,13 +778,13 @@ write_rookieStats_europePlayers <- function(){
     group_by(Player) %>%
     summarise_if(is.numeric, mean)
   # Correct spelling errors 2017 draft
-  collegePlayers[grepl("Nazareth Mitrou-Long",collegePlayers$Player),]$Player <- "Naz Mitrou-Long"
-  collegePlayers[grepl("Royce O'Neale",collegePlayers$Player),]$Player <- "Royce O'Neal"
-  collegePlayers[grepl("Jacorey Williams",collegePlayers$Player),]$Player <- "JaCorey Williams"
-  collegePlayers[grepl("Andrew White III",collegePlayers$Player),]$Player <- "Andrew White"
-  collegePlayers[grepl("TJ Leaf",collegePlayers$Player),]$Player <- "T.J. Leaf"
-  collegePlayers[grepl("Frank Mason",collegePlayers$Player),]$Player <- "Frank Mason III"
-  collegePlayers[grepl("Akim Mitchell",collegePlayers$Player),]$Player <- "Akil Mitchell"
+  # collegePlayers[grepl("Nazareth Mitrou-Long",collegePlayers$Player),]$Player <- "Naz Mitrou-Long"
+  # collegePlayers[grepl("Royce O'Neale",collegePlayers$Player),]$Player <- "Royce O'Neal"
+  # collegePlayers[grepl("Jacorey Williams",collegePlayers$Player),]$Player <- "JaCorey Williams"
+  # collegePlayers[grepl("Andrew White III",collegePlayers$Player),]$Player <- "Andrew White"
+  # collegePlayers[grepl("TJ Leaf",collegePlayers$Player),]$Player <- "T.J. Leaf"
+  # collegePlayers[grepl("Frank Mason",collegePlayers$Player),]$Player <- "Frank Mason III"
+  # collegePlayers[grepl("Akim Mitchell",collegePlayers$Player),]$Player <- "Akil Mitchell"
   
   
   #collegePlayers[grepl("Dennis Smith",collegePlayers$Player),]$Player <- "Dennis Smith Jr."

@@ -91,8 +91,30 @@ nn_Defense <- model$finalModel
 #             constant.weights = NULL, likelihood = FALSE)
 #
 # Adjusting players skills
-
+# Returning NBA players (played at least 1 minute in the NBA ever)
 write_playersNewPredicted()
-
+playersNewPredicted <- read.csv("data/playersNewPredicted_Sep8_18.csv", stringsAsFactors = FALSE) %>% # from .computePredictedPlayerStats() in write_teams_predicted_stats_new_season.R
+  distinct(Player, .keep_all=TRUE) %>% select(-c(Pos,Season,Age))
+# make sure no shooting percentages are > 1
+playersNewPredicted <- mutate_at(playersNewPredicted, vars(contains("Per")), function(x) ifelse(x >=1, quantile(x,.99), x))
+#
+# Handle rookies
+# History of drafts.
+# writes: rookiesDraftHist.csv
+write_rookiesDraftHist()
+# write all rookies (all draft rounds and non drafted)
+# writes: rookies.csv
+write_rookies()
+# write college players stats from last season
+# writes: collegePlayers.csv
+write_collegePlayers()
+# read rookies and college players (to grab their stats) and merge them. There will be differences in 
+# names so I have to manually change those. For now, I won't do anything manually
+# If no manual changes required, simply run this:
+# writes: rookieStats.csv, europePlayers.csv
+write_rookieStats_europePlayers()
+rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
+# 
+# next step current_rosters
 
 
