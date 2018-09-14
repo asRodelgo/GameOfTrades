@@ -36,9 +36,9 @@ playersPredictedStats_adjMin <- read.csv("data/playersNewPredicted_Final_adjMin.
 playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE)
 
 # load neuralnet models
-load("data/modelNeuralnet5_PTS.Rdata")
+load("data/modelNeuralnet19_PTS.Rdata")
 nn_Offense <- model$finalModel
-load("data/modelNeuralnet5_PTSA.Rdata")
+load("data/modelNeuralnet19_PTSA.Rdata")
 nn_Defense <- model$finalModel
 # load limits for scaled data. Each trade will trigger a predict() from the selected NNet model
 # But scale limits must be kept as originally trained in the model for consistency

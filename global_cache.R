@@ -33,13 +33,15 @@ team_stats <- merge(team_stats,franchises,by.x="Team",by.y="Franchise",all.x=TRU
 playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE) # from write_playersHist.R
 playersHist <- .rename_PlayerDuplicates(playersHist) # differentiate players with the same name
 
-playersPredictedStats_adjMin <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE)
-playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE)
+playersPredictedStats_adjMin <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE) %>%
+  distinct(Player, .keep_all = TRUE)
+playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv", stringsAsFactors = FALSE) %>%
+  distinct(Player, .keep_all = TRUE)
 
 # load neuralnet models
-load("data/modelNeuralnet5_PTS.Rdata")
+load("data/modelNeuralnet19_PTS.Rdata")
 nn_Offense <- model$finalModel
-load("data/modelNeuralnet5_PTSA.Rdata")
+load("data/modelNeuralnet19_PTSA.Rdata")
 nn_Defense <- model$finalModel
 # load limits for scaled data. Each trade will trigger a predict() from the selected NNet model
 # But scale limits must be kept as originally trained in the model for consistency
@@ -63,10 +65,13 @@ playersPredicted2 <- merge(playersPredicted,playersPredictedStats_adjMin[,c("Pla
   mutate(adjPlusMinus = plusMinus*effMin*100) %>%
   group_by(Tm) %>%
   mutate(teamPlusMinus = sum(adjPlusMinus,na.rm=TRUE)) %>%
+  distinct(Player, .keep_all = TRUE) %>%
   ungroup()
 
-playerDashboard <- read.csv("cache_global/playerDashboard.csv", stringsAsFactors = FALSE)
-playerRanks <- read.csv("cache_global/playerRanks.csv", stringsAsFactors = FALSE)
+playerDashboard <- read.csv("cache_global/playerDashboard.csv", stringsAsFactors = FALSE) %>%
+  distinct(Player, .keep_all = TRUE)
+playerRanks <- read.csv("cache_global/playerRanks.csv", stringsAsFactors = FALSE) %>%
+  distinct(Player, .keep_all = TRUE)
 playerMax <- summarise_if(playerDashboard, is.numeric, max)
 playerMin <- summarise_if(playerDashboard, is.numeric, min)
 

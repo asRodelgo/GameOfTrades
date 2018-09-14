@@ -296,7 +296,7 @@ write_Awards <- function(){ # Not working!
 # calls helpers
 write_tsne_ready_hist <- function() {
   
-  source("helper_functions.R")
+  #source("helper_functions.R")
   #.teamsPredictedPower() 
   tsne_points <- read.csv("data/tsne_points_All.csv",stringsAsFactors = FALSE)
   
@@ -347,7 +347,7 @@ write_tsne_points_newSeason <- function() {
 # calls helpers
 write_tsne_ready_newSeason <- function(){
   
-  source("helper_functions.R")
+  #source("helper_functions.R")
   tsne_points <- read.csv("data/tsne_points_newSeason.csv",stringsAsFactors = FALSE)
   
   # load data
@@ -474,7 +474,7 @@ write_tsne_points_teams <- function(){
 # calls helpers
 write_tsne_ready_teams <- function(){
   
-  source("helper_functions.R")
+  #source("helper_functions.R")
   tsne_points <- read.csv("data/tsne_points_teams.csv",stringsAsFactors = FALSE)
   
   # load data

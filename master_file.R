@@ -220,7 +220,8 @@ playersNewPredicted_Final_adjMin <- mutate(playersNewPredicted_Final,Exp = ifels
                                            Pick = ifelse(is.na(Pick),0,as.numeric(Pick))) %>% # in case Exp is NA for instance returning NBA players
   group_by(Player) %>%
   mutate(effMin = ifelse(Pick > 0 & Exp == "R",effMin*(1-draftMinutesInNBA$`mean(minDiff)`[Pick]),
-                         ifelse(Exp == "R",effMin*(1-col2nbaMinDiff),effMin)))
+                         ifelse(Exp == "R",effMin*(1-col2nbaMinDiff),effMin))) %>%
+  distinct(Player, .keep_all = TRUE)
 
 write.csv(playersNewPredicted_Final_adjMin, "data/playersNewPredicted_Final_adjMin.csv", row.names = FALSE)
 # 3. adjust percent of play time -----------------------------------
@@ -250,6 +251,7 @@ playersNewPredicted_Final_adjMin2 <- mutate(playersNewPredicted_Final_adjMin2,
 # confrmed: effMin volume matters, I will transform in percentages
 playersNewPredicted_Final_adjMinPer <- group_by(playersNewPredicted_Final_adjMin2, Tm) %>%
   mutate(effMin = effMin/sum(effMin,na.rm=TRUE)) %>%
+  distinct(Player, .keep_all = TRUE) %>%
   as.data.frame()
 write.csv(playersNewPredicted_Final_adjMinPer, "data/playersNewPredicted_Final_adjPer.csv", row.names = FALSE)
 #
@@ -257,7 +259,85 @@ write.csv(playersNewPredicted_Final_adjMinPer, "data/playersNewPredicted_Final_a
 ####### THE 2 FILES THAT ULTIMATELY CONTAIN ALL THE INFORMATION:
 ## playersNewPredicted_Final_adjMin
 ## playersNewPredicted_Final_adjMinPer
+playersPredictedStats_adjMin <- read.csv("data/playersNewPredicted_Final_adjMin.csv",stringsAsFactors = FALSE)
+playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.csv",stringsAsFactors = FALSE)
 ###########################################################################################
+#
+# Calculate tsne files for later use in the app
+data_tsne <- .tSNE_prepare_All() # for tSNE visualization from similarityFunctions.R
+write_tsne_points_All()
+write_tsne_ready_hist()
+write_tsne_points_newSeason()
+write_tsne_ready_newSeason()
+write_tsne_ready_teams()
+# get game scores from past 7 seasons (since 2009-2010)
+write_gameScores()
+###########################################################################################
+# Caching some files to speed up application start-up (folder: /cache_global/)
+# Basically all this would go inside the global.R file
+#
+# load limits for scaled data. Each trade will trigger a predict() from the selected NNet model
+# But scale limits must be kept as originally trained in the model for consistency
+team_stats_Off <- .prepareModel("PTS")
+write.csv(team_stats_Off, "cache_global/team_stats_Off.csv", row.names = FALSE)
+team_stats_Def <- .prepareModel("PTSA")
+write.csv(team_stats_Def, "cache_global/team_stats_Def.csv", row.names = FALSE)
+scaleMaxMin_Off <- .getScaleLimits("PTS", team_stats_Off)
+scaleMaxMin_Def <- .getScaleLimits("PTSA", team_stats_Def)
+scaleMaxMin_Off <- scaleMaxMin_Off[!(row.names(scaleMaxMin_Off) %in%       
+                                       c("FGPer","FG3Per","FG2Per","effFGPer","FTPer","effFG","effFGA","effTRB","effPTS")),]
+scaleMaxMin_Def <- scaleMaxMin_Def[!(row.names(scaleMaxMin_Def) %in%       
+                                       c("FGPer","FG3Per","FG2Per","effFGPer","FTPer","effFG","effFGA","effTRB","effPTS")),]
+write.csv(scaleMaxMin_Off, "cache_global/scaleMaxMin_Off.csv", row.names = FALSE)
+write.csv(scaleMaxMin_Def, "cache_global/scaleMaxMin_Def.csv", row.names = FALSE)
+maxs_Off <- scaleMaxMin_Off$maxs
+mins_Off <- scaleMaxMin_Off$mins
+maxs_Def <- scaleMaxMin_Def$maxs
+mins_Def <- scaleMaxMin_Def$mins
+maxs_vector_input <- cbind(maxs_Off,maxs_Def)
+mins_vector_input <- cbind(mins_Off,mins_Def)
+
+#
+# compute teams and players Offense and Defense
+source("code_chunks/source_computeOffenseDefense.R",local=TRUE)
+playersPredicted2 <- merge(playersPredicted,playersPredictedStats_adjMin[,c("Player","Exp","Age","Tm","effMin")], by = "Player") %>%
+  mutate(adjPlusMinus = plusMinus*effMin*100) %>%
+  group_by(Tm) %>%
+  mutate(teamPlusMinus = sum(adjPlusMinus,na.rm=TRUE)) %>%
+  ungroup()
+
+playerDashboard <- merge(playersPredictedStats_adjPer,select(playersPredicted2, -c(Age,Tm,effMin)), by = "Player")
+playerRanks <- mutate_if(playerDashboard, is.numeric, function(x) row_number(desc(x)))
+write.csv(playerDashboard, "cache_global/playerDashboard.csv", row.names=FALSE)
+write.csv(playerRanks, "cache_global/playerRanks.csv", row.names=FALSE)
+#
+# Average player
+avg_Exp <- mean(as.numeric(gsub("R","0",playersPredictedStats_adjMin$Exp)), na.rm=TRUE)
+averagePlayer <- .calculate_AvgPlayer(playersPredictedStats_adjMin) %>% mutate(Exp = as.character(floor(avg_Exp))) %>%
+  select(Player, Pos, Season, Age, Tm, Exp, everything()) %>%
+  mutate(Age = round(Age,0)) %>%
+  as.data.frame()
+write.csv(averagePlayer, "cache_global/averagePlayer.csv", row.names=FALSE)
+#
+# Regular Season schedule
+conferences <- read.csv("data/nba_conferences.csv", stringsAsFactors = FALSE) # Same as franchises 
+realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE)
+gameScores <- read.csv("data/gameScores.csv", stringsAsFactors = FALSE)
+datesRange <- unique(realSeasonSchedule$Date)
+sigma <- sd(c(as.numeric(gameScores$pts_home),as.numeric(gameScores$pts_away)), na.rm = TRUE)
+avgHome <- mean(as.numeric(gameScores$pts_home), na.rm = TRUE)
+avgAway <- mean(as.numeric(gameScores$pts_away), na.rm = TRUE)
+global_mean <- mean(c(as.numeric(gameScores$pts_home),as.numeric(gameScores$pts_away)), na.rm = TRUE)
+home_away_factor <- avgHome - avgAway # how many extra points does a team score on average when playing home
+# Teams Predicted powers and wins
+source("code_chunks/source_predictedPowersWins.R",local=TRUE)
+regSeasonOutcome <- .standings(real=TRUE)
+standings <- regSeasonOutcome[[1]]
+games <- regSeasonOutcome[[2]]
+write.csv(games, "cache_global/games.csv", row.names = FALSE)
+list.save(standings, "cache_global/standings.rds")
+
+
 
 
 
