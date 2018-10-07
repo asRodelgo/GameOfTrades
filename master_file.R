@@ -60,6 +60,8 @@ for (a in 18:41){
 write_realSeasonSchedule()
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
+# filter by the exact dates
+datesRange <- datesRange[which(datesRange>"2018-10-12")]
 #
 # Save Neural Network model to be loaded at the start
 library(rlist) # write list as file
@@ -93,12 +95,18 @@ nn_Defense <- model$finalModel
 #
 # Adjusting players skills
 # Returning NBA players (played at least 1 minute in the NBA ever)
-write_playersNewPredicted()
+write_playersNewPredicted() # THIS IS WHERE ALL THE MAGIC HAPPENS, MOSTLY IN .predictPlayer() helper function
 playersNewPredicted <- read.csv("data/playersNewPredicted_Sep8_18.csv", stringsAsFactors = FALSE) %>% # from .computePredictedPlayerStats() in write_teams_predicted_stats_new_season.R
   distinct(Player, .keep_all=TRUE) %>% select(-c(Pos,Season,Age))
 # make sure no shooting percentages are > 1
 playersNewPredicted <- mutate_at(playersNewPredicted, vars(contains("Per")), function(x) ifelse(x >=1, quantile(x,.99), x))
-#
+# make sure percentages are correct (top10_var computes variation for all absolute and percentage so percentages may not be correct)
+playersNewPredicted <- group_by(playersNewPredicted, Player) %>%
+  mutate(FGPer = effFG/effFGA, FG3Per = eff3PM/eff3PA, FG2Per = eff2PM/eff2PA, 
+         effFGPer = (effFG + .5*eff3PM)/effFGA, FTPer = effFTM/effFTA, 
+         effTRB = effDRB + effORB, effPTS = effFTM + 2*eff2PM + 3*eff3PM) %>%
+  mutate_all(function(x) ifelse(is.na(x),0,x)) %>%
+  ungroup()
 # Handle rookies
 # History of drafts.
 # writes: rookiesDraftHist.csv
@@ -159,6 +167,13 @@ playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = T
 # now this final set of non matched players correspond to those with a history in the NBA but didn't play in last season
 # Next step is to calculate their predicted stats and add them to the final set
 playerSet_Leftover <- .computePredictedPlayerStats_Leftovers(playerSet_b) # from compute_PredictedLeftovers.R
+playerSet_Leftover <- group_by(playerSet_Leftover, Player) %>%
+  mutate(FGPer = effFG/effFGA, FG3Per = eff3PM/eff3PA, FG2Per = eff2PM/eff2PA, 
+         effFGPer = (effFG + .5*eff3PM)/effFGA, FTPer = effFTM/effFTA, 
+         effTRB = effDRB + effORB, effPTS = effFTM + 2*eff2PM + 3*eff3PM) %>%
+  mutate_all(function(x) ifelse(is.na(x),0,x)) %>%
+  ungroup()
+
 write.csv(playerSet_Leftover,"data/playerPredicted_Leftover.csv", row.names = FALSE)
 playerSet_Leftover <- read.csv("data/playerPredicted_Leftover.csv", stringsAsFactors = FALSE)
 playerSet_Leftover <- mutate(playerSet_Leftover, Season = current_rosters$Season[1]) %>%
@@ -237,6 +252,8 @@ plot(seq(18,1,-1),incrementShare$percent)
 # I will use this as estimate. Although the trend is going down, in last 5 seasons, % is 59%
 # because rosters are getting bigger thus utilize more players. Usually top 1 % revolves around 10% 
 playersNewPredicted_Final_adjMin2 <- .redistributeMinutes(playersNewPredicted_Final_adjMin, topHeavy = 7, topMinShare = .6, min_share_top1 = .105)
+# Make sure there are no negative udage rate
+playersNewPredicted_Final_adjMin2 <- mutate(playersNewPredicted_Final_adjMin2, effMin = ifelse(effMin < 0, .000001, effMin))
 # The reason to go top_1 = 1.1 is to give more prominence to star players which adjust better when simulating
 # wins in the regular season
 # make sure Season column shows the new season to come and remove Pick column as i don't need it anymore

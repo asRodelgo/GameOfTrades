@@ -950,8 +950,28 @@ simulate_n_seasons <- function(num_sim = 1) {
   top10_similar <- head(.similarPlayers(playerName,numberPlayersToCompare,pickAge),numberTeamsForVariation)$Player
   thisAgeFrame <- filter(playersHist, Player == playerName, Season >= paste0(as.numeric(thisYear)-pickAge+18,"-",as.numeric(thisYear)-pickAge+19))
   
+  maxAge <- max(thisAgeFrame$Age)
+  minutesPlayedLastSeason <- filter(thisAgeFrame, Player == playerName, Age == maxAge)$G*filter(thisAgeFrame, Player == playerName, Age == maxAge)$MP
+  
   if (nrow(thisAgeFrame)>0){
-    thisAge <- max(filter(thisAgeFrame, Player == playerName)$Age) 
+    if (minutesPlayedLastSeason >= 100){# make sure player played at least 100 minutes in his last season
+      thisAge <- max(filter(thisAgeFrame, Player == playerName)$Age)
+    } else {
+      minutesPlayed <- filter(thisAgeFrame, Player == playerName, Age == maxAge)$G*filter(thisAgeFrame, Player == playerName, Age == maxAge)$MP
+      tryAge <- maxAge
+      while (minutesPlayed < 100 & tryAge >= min(thisAgeFrame$Age)) {
+        tryAge <- tryAge - 1
+        minutesPlayed <- filter(thisAgeFrame, Player == playerName, Age == tryAge)$G*filter(thisAgeFrame, Player == playerName, Age == tryAge)$MP
+        if (!is.numeric(minutesPlayed) | is_empty(minutesPlayed)) minutesPlayed <- 0
+      }
+      if (!is.numeric(minutesPlayed) | is_empty(minutesPlayed)){
+        thisAge <- maxAge
+      } else {
+        if (minutesPlayed >= 100) thisAge <- tryAge else thisAge <- maxAge
+      }
+      
+    }
+    
   } else { # this player has been out of the league for way too long
     lastSeasonPlayed <- filter(playersHist, Player == playerName) %>%
       arrange(desc(Season)) %>%
@@ -1989,8 +2009,10 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
 # Once rosters are updated (Phase 1), predict avg points and avg points against
 # per team for the new season or for a season in the past (back to 1979-1980)
 # compute avg PTS as offensive power and PTSA as defensive power
-.computePower <- function(data = playersNew, Off_or_Def, thisTeam = "All", defaultMinutes = NULL, removeEffMin = TRUE, 
-                          actualOrPredicted = "actual", maxs_vector = NULL, mins_vector = NULL){
+# THis FUnction does not scale the data prior to apply predicted model
+# Needs nn_Offense and nn_Defense as inputs (global variables)
+.computePower_NoScale <- function(data = playersNew, Off_or_Def, thisTeam = "All", defaultMinutes = NULL, removeEffMin = TRUE, 
+                          actualOrPredicted = "actual", off_model = nn_Offense, def_model = nn_Defense){
   
   # specifically, this function will prepare playersNew dataset by default
   # It is understood, playersNew is the updated rosters at the beginning of a new season
@@ -2014,6 +2036,58 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   # scale the variables the same way the training dataset was scaled so the nnet makes sense
   # scaleMaxMin needs a reference column (team, player, etc.). I need to make sure it's the first column
   playersSumm <- select(playersSumm, team_season, everything())
+  
+  team_season <- playersSumm[,1]
+  # model pre-calculated (2 models, Offense and Defense)
+  #nn <- .selectedModel(Off_or_Def) 
+  if (Off_or_Def == "PTS"){
+    nn <- off_model
+  } else {
+    nn <- def_model  
+  }
+  
+  # Prediction
+  playersSumm <- dplyr::select(playersSumm, -team_season)
+  # unscaled data for caret models: use predict function for new data 
+  pr.nn <- predict(nn,playersSumm)
+  #test_pr <- compute(nn,testing[,-ncol(testing)])
+  Off_or_Def_teamStats <- select(team_stats, one_of(Off_or_Def))
+  pred_PTS <- as.numeric(pr.nn)
+  # bring back the team names
+  pr_pts <- cbind(team_season,pred_PTS)
+  pr_pts <- as.data.frame(pr_pts)
+  
+  return(pr_pts)
+}
+
+# THis FUnction will scale the data prior to apply predicted model
+.computePower <- function(data = playersNew, Off_or_Def, thisTeam = "All", defaultMinutes = NULL, removeEffMin = TRUE, 
+                          actualOrPredicted = "actual", maxs_vector = NULL, mins_vector = NULL, 
+                          off_model = nn_Offense, def_model = nn_Defense){
+  
+  # specifically, this function will prepare playersNew dataset by default
+  # It is understood, playersNew is the updated rosters at the beginning of a new season
+  if (actualOrPredicted=="actual"){ # whether actual data (before prediction) or predicted data
+    playersSumm <- .prepareModelPrediction(data = data, thisTeam)  
+  } else {
+    playersSumm <- .prepareModelOncePredicted(data_team = data, thisTeam = thisTeam)  
+  }
+  
+  # effMin is 1 of the variables that get averaged weighted by effMin, in case it adds noise to the
+  # neural network 
+  if (!is.null(defaultMinutes)) { 
+    playersSumm$effMin <- defaultMinutes
+  }
+  if (removeEffMin & ncol(select(playersSumm, one_of("effMin")))>0) { 
+    playersSumm <- select(playersSumm, -effMin)
+  }
+  ## Strip linearly relationed columns: FG, FGA, FG%,3P%,2P%,FT%,effFG%, effPTS
+  #playersSumm <- select(playersSumm, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
+  ## End of Strip
+  # scale the variables the same way the training dataset was scaled so the nnet makes sense
+  # scaleMaxMin needs a reference column (team, player, etc.). I need to make sure it's the first column
+  playersSumm <- select(playersSumm, team_season, everything())
+  
   # The scale has to be preserved all the way during trades, otherwise, every single change 
   # in the composition of rosters will trigger a new scale and Offense and Defense powers
   # will be messed up
@@ -2037,9 +2111,9 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   # NNet model pre-calculated (2 models, Offense and Defense)
   #nn <- .selectedModel(Off_or_Def) 
   if (Off_or_Def == "PTS"){
-    nn <- nn_Offense
+    nn <- off_model
   } else {
-    nn <- nn_Defense  
+    nn <- def_model  
   }
   
   # Prediction
@@ -2058,14 +2132,26 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   return(pr_pts)
 }
 
+
 # Put together teams and predicted powers as input to a new regular season
 .teamsPredictedPower <- function(data = playersNew, defaultMin = NULL, actualOrPred="actual",
-                                 maxs_vector = NULL, mins_vector = NULL) {
+                                 maxs_vector = NULL, mins_vector = NULL, scaled_data = TRUE,
+                                 off_model = nn_Offense, def_model = nn_Defense) {
   
-  Def <- .computePower(data = data,Off_or_Def = "PTSA",thisTeam = "All",defaultMinutes = defaultMin,
-                       actualOrPredicted = actualOrPred, maxs_vector = maxs_vector, mins_vector = mins_vector)
-  Off <- .computePower(data = data,Off_or_Def = "PTS", thisTeam = "All",defaultMinutes = defaultMin,
-                       actualOrPredicted = actualOrPred, maxs_vector = maxs_vector, mins_vector = mins_vector)
+  if (scaled_data) {
+    Def <- .computePower(data = data,Off_or_Def = "PTSA",thisTeam = "All",defaultMinutes = defaultMin,
+                         actualOrPredicted = actualOrPred, maxs_vector = maxs_vector, mins_vector = mins_vector,
+                         off_model = off_model, def_model = def_model)
+    Off <- .computePower(data = data,Off_or_Def = "PTS", thisTeam = "All",defaultMinutes = defaultMin,
+                         actualOrPredicted = actualOrPred, maxs_vector = maxs_vector, mins_vector = mins_vector,
+                         off_model = off_model, def_model = def_model) 
+  } else {
+    Def <- .computePower_NoScale(data = data,Off_or_Def = "PTSA",thisTeam = "All",defaultMinutes = defaultMin,
+                         actualOrPredicted = actualOrPred, off_model = off_model, def_model = def_model)
+    Off <- .computePower_NoScale(data = data,Off_or_Def = "PTS", thisTeam = "All",defaultMinutes = defaultMin,
+                         actualOrPredicted = actualOrPred, off_model = off_model, def_model = def_model) 
+  }
+  
   team_power <- merge(Off,Def,by="team_season")
   
   team_power <- team_power %>%
