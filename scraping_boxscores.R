@@ -11,7 +11,7 @@ franchises <- read.csv("data/franchisesHistory.csv",stringsAsFactors = FALSE) %>
 
 months <- c("01","02","03","04","05","10","11","12")
 days <- c(1:31)
-for (thisYear in c(1980:thisSeason)) {
+for (thisYear in c(1996:thisSeason)) {
   for (thisTeam in franchises$teamCode){
     for (thisMonth in months) {
       for (thisDay in days) {
@@ -20,45 +20,50 @@ for (thisYear in c(1980:thisSeason)) {
                       ".html")
         if (status_code(GET(url)) == 200) { # successful response
 
-          getTeamsLineScore <- url %>%
+          getOtherTeam <- url %>%
             read_html() %>%
-            #html_nodes(xpath='//*[@id="content"]/h1') %>%
-            #html_node(xpath='//*[@id="div_other_scores"]/div/div[1]') %>%
+            #RCurl::getURL(ssl.verifyhost = 0L, ssl.verifypeer = 0L) %>%
             html_nodes(xpath ='//*[@id="content"]/div[2]/div[1]/div[1]/strong[1]/a[1]') %>%
             html_attr("href") %>%
             substr(8,10)
-          print(paste(thisYear,"-",thisMonth,"-",thisDay,"-",thisTeam,"-",getTeamsLineScore))
+          print(paste(thisYear,"-",thisMonth,"-",thisDay,"-",thisTeam,"-",getOtherTeam))
           
+          getBoxScoreTeam <- url %>%
+            read_html() %>%
+            html_nodes(xpath = paste0('//*[@id="box_',tolower(thisTeam),'_basic"]')) %>%
+            html_table(fill = TRUE)
+          getBoxScoreTeam <- getBoxScoreTeam[[1]]
+          names(getBoxScoreTeam) <- getBoxScoreTeam[1,]
+          getBoxScoreTeam <- getBoxScoreTeam[-1,]
+          getBoxScoreTeam <- mutate(getBoxScoreTeam, Tm = thisTeam, Year = thisYear, Month = thisMonth, Day = thisDay)
+          
+          getBoxScoreOtherTeam <- url %>%
+            read_html() %>%
+            html_nodes(xpath = paste0('//*[@id="box_',tolower(getOtherTeam),'_basic"]')) %>%
+            html_table(fill = TRUE)
+          getBoxScoreOtherTeam <- getBoxScoreOtherTeam[[1]]
+          names(getBoxScoreOtherTeam) <- getBoxScoreOtherTeam[1,]
+          getBoxScoreOtherTeam <- getBoxScoreOtherTeam[-1,]
+          getBoxScoreOtherTeam <- mutate(getBoxScoreOtherTeam, Tm = getOtherTeam ,Year = thisYear, Month = thisMonth, Day = thisDay)
+          
+          if (nrow(box_scores)>0) {
+            box_scores <- bind_rows(box_scores,getBoxScoreTeam,getBoxScoreOtherTeam)
+          } else {
+            box_scores <- bind_rows(getBoxScoreTeam,getBoxScoreOtherTeam)
+          }
         }
-        
       }
     }
   }
 }
 
-# 
-#     url <- paste0("https://www.basketball-reference.com/teams/",thisTeam,"/",thisYear,"_games.html")
-#     if (status_code(GET(url)) == 200){ # successful response
-#       getBoxscoreLinks <- url %>%
-#         read_html() %>%
-#         html_nodes(xpath='//*[@id="games"]') %>%
-#         #html_nodes(xpath='//*[@id="games"]/tbody/tr[1]/td[4]/a') %>%
-#         html_table(fill = TRUE)
-#       thisBoxScoreList <- getBoxscoreLinks[[1]]
-#       # home_team, away_team, date,
-#       thisBoxScoreKeys <- select(thisBoxScoreList, Date,)
-# 
-#       thisRoster <- getRoster[[1]] %>% select(-`No.`)
-#       names(thisRoster)[which(names(thisRoster)=='')] <- "Nationality"
-#       thisRoster <- mutate(thisRoster, Tm = thisTeam, Exp = as.character(Exp))
-#       if (nrow(current_rosters)>0){
-#         current_rosters <- bind_rows(current_rosters,thisRoster)
-#       } else{
-#         current_rosters <- thisRoster
-#       }
-#     }
-#   }
-#   names(current_rosters) <- gsub(" ","_",names(current_rosters))
+# final dataset
+box_scores1 <- read.csv("data/box_scores_1980_1995.csv", stringsAsFactors = FALSE)
+box_scores2 <- read.csv("data/box_scores_1996_2018.csv", stringsAsFactors = FALSE)
+box_scores_all <- bind_rows(box_scores1,box_scores2) %>%
+  mutate_at(vars(-matches("Player|Starter|Tm")), as.numeric)
 
+box_scores_totals <- filter(box_scores_all, grepl("Total",Player) | grepl("Total",Starters)) %>%
+  filter(Year >= 1985) # data before 85 has holes
 
 
