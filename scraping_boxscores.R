@@ -65,5 +65,18 @@ box_scores_all <- bind_rows(box_scores1,box_scores2) %>%
 
 box_scores_totals <- filter(box_scores_all, grepl("Total",Player) | grepl("Total",Starters)) %>%
   filter(Year >= 1985) # data before 85 has holes
+box_scores_totals <- cbind(box_scores_totals,homeOrAway = rep(c('H','A'),nrow(box_scores_totals)/2))
+# Try simple regression model
+dataToModel <- box_scores_totals %>%
+  #group_by(box_scores_totals,Year,Month,Day) %>%
+  mutate(leadPTS = lead(PTS),lagPTS = lag(PTS), leadTm = lead(Tm), lagTm = lag(Tm)) %>%
+  mutate(PTSA = ifelse(homeOrAway=="H",leadPTS,lagPTS))
+  
+dataToModel$leadTm[nrow(dataToModel)] <- dataToModel$lagTm[nrow(dataToModel)]  
+
+dataToModel <- mutate(dataToModel, TmA_Date_TmB = paste0(Tm,"_",Month,Day,Year,leadTm)) %>%
+  select(TmA_Date_TmB,FG,FGA,X3P,X3PA,FT,FTA,ORB,DRB,AST,STL,BLK,TOV,PF,PTS,PTSA)
+
+
 
 
