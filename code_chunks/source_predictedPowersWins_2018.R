@@ -47,16 +47,14 @@ team_power <- merge(predicted_Team_Offense,predicted_Team_Defense,by="team_seaso
 team_power <- team_power %>%
   mutate(teamCode = substr(team_season,1,3),
          Season = substr(team_season, 5,13)) %>%
-  select(team_season, TEAM_PTS = Offense, TEAM_PTSAG = Defense, teamCode, Season) %>%
+  select(team_season, TEAM_PTS = Offense, TEAM_PTSAG = Defense, TeamCode = teamCode, Season) %>%
   as.data.frame()
 
 team_power$TEAM_PTS <- as.numeric(as.character(team_power$TEAM_PTS))
 team_power$TEAM_PTSAG <- as.numeric(as.character(team_power$TEAM_PTSAG))
 teamsPredicted <- team_power
-
 #
 #
-
 win_predictions <- .teamsPredictedWins(data = teamsPredicted)
 
 teamDashboard <- merge(teamsPredicted, win_predictions, by.x = "TeamCode", by.y = "team") %>%
@@ -66,11 +64,6 @@ teamStats <- .computeTeamStats(data = playersPredictedStats_adjPer)
 teamStatRanks <- mutate_if(teamStats, is.numeric, function(x) row_number(desc(x)))
 teamRanks <- merge(teamStatRanks, select(teamRanks,-Season),by="Tm")
 teamMax <- summarise_if(teamStats, is.numeric, max)
-#write.csv(teamsPredicted, "cache_global/teamsPredicted.csv", row.names=FALSE)
-#write.csv(win_predictions, "cache_global/win_predictions.csv", row.names=FALSE)
-#write.csv(teamDashboard, "cache_global/teamDashboard.csv", row.names=FALSE)
-#write.csv(teamRanks, "cache_global/teamRanks.csv", row.names=FALSE)
-#write.csv(teamStats, "cache_global/teamStats.csv", row.names=FALSE)
 
 # t-SNE for teams
 tsne_ready_teams <- read.csv("data/tsne_ready_teams.csv", stringsAsFactors = FALSE)

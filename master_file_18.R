@@ -482,7 +482,7 @@ avgAway <- mean(as.numeric(gameScores$pts_away), na.rm = TRUE)
 global_mean <- mean(c(as.numeric(gameScores$pts_home),as.numeric(gameScores$pts_away)), na.rm = TRUE)
 home_away_factor <- avgHome - avgAway # how many extra points does a team score on average when playing home
 # Teams Predicted powers and wins
-source("code_chunks/source_predictedPowersWins.R",local=TRUE)
+source("code_chunks/source_predictedPowersWins_2018.R",local=TRUE)
 regSeasonOutcome <- .standings(real=TRUE)
 standings <- regSeasonOutcome[[1]]
 games <- regSeasonOutcome[[2]]
