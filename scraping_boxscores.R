@@ -188,6 +188,15 @@ predict_data_Def <- playersPredictedStats_adjPer %>%
   rename_all(funs(gsub("M","",.))) %>%
   select(-AST,-FT,-FTA,-starts_with("X"))
 
+predict_data_Def_All <- playersPredictedStats_adjPer %>%
+  #filter(playersPredictedStats_adjPer, grepl("lebron|durant|westbro|curry|anthony dav|giann", tolower(Player))) %>%
+  select(-contains("Per"),-Pos,-Season,-Age,-Tm) %>%
+  rename_all(funs(gsub("eff","",.))) %>% 
+  select(-Min,-FG,-FGA,-TRB,-PTS) %>%
+  rename_all(funs(gsub("2","X2",.))) %>%
+  rename_all(funs(gsub("3","X3",.))) %>%
+  rename_all(funs(gsub("M","",.))) 
+
 points_data <- playersPredictedStats_adjPer %>%
   mutate(points = 40*5*(effFTM + 2*eff2PM + 3*eff3PM)) %>%
   select(Player, points)
@@ -200,9 +209,14 @@ predicted_ifPlayers <- merge(predicted_ifPlayers,points_data, by = "Player") %>%
 predicted_Def <- predict(model, newdata = predict_data_Def)
 predicted_ifPlayers_Def <- data.frame(Player = predict_data_Def$Player,Def_predicted = as.numeric(predicted_Def))
 
+predicted_Def_All <- predict(model, newdata = predict_data_Def_All)
+predicted_ifPlayers_Def_All <- data.frame(Player = predict_data_Def_All$Player,Def_predicted_All = as.numeric(predicted_Def_All))
+
 predicted_ifPlayers <- merge(predicted_ifPlayers,predicted_ifPlayers_Def, by = "Player") %>%
   mutate(diff = Off_avg2_1 - Def_predicted)
 
+predicted_ifPlayers <- merge(predicted_ifPlayers,predicted_ifPlayers_Def_All, by = "Player") %>%
+  mutate(diff_Def_All = Off_avg2_1 - Def_predicted_All)
 
 #############
 predictions <- data.frame(actual_PTSA = predict_data$PTSA, predicted_PTSA = predicted) %>%
