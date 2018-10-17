@@ -1140,36 +1140,35 @@ write_playersPics <- function(){
     if (status_code(GET(url))==200) {
       thisTeam <- url %>%
         read_html() %>%
-        html_nodes(xpath='//*[@id="my-players-table"]/div[2]/div/table[1]') %>%
-        html_children() %>%
-        html_children() %>%
-        html_children() %>%
-        html_attr('href')
+        html_nodes("a") %>% 
+        html_attr("href")
       
-      thisRoster <- thisTeam[6:length(thisTeam)]
-      thisRoster <- gsub("http://www.espn.com/nba/player/_/id/","",thisRoster)
-      thisPair <- strsplit(thisRoster,"/",fixed = TRUE) %>%
-        as.data.frame(stringsAsFactors = FALSE) %>%
-        t() %>%
-        as.data.frame(stringsAsFactors = FALSE)
+      thisNames <- url %>%
+        read_html() %>%
+        html_nodes("a") %>% 
+        html_text()
       
-      names(thisPair) <- c("player_code","player_name")
+      thisRoster <- data.frame(name = thisNames, id = thisTeam) %>% 
+        filter(grepl("http://www.espn.com/nba/player/_/id/",id)) %>%
+        mutate(id = gsub("http://www.espn.com/nba/player/_/id/","",id))
+      
+      names(thisRoster) <- c("player_name","player_code")
       
       if (nrow(players_pics)>0){
-        players_pics <- rbind(players_pics,thisPair)
+        players_pics <- bind_rows(players_pics,thisRoster)
       } else {
-        players_pics <- thisPair
+        players_pics <- thisRoster
       }
     }  
   }
   write.csv(players_pics, "data/players_pics_codes.csv", row.names = FALSE)
   
-  for (p in 103:nrow(players_pics)) {
-    
+  for (p in 1:nrow(players_pics)) {
+    #http://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/3133874.png&w=350&h=254
     thisPic <- paste0("http://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/",
-                      players_pics[p,1],".png&w=350&h=254")
+                      players_pics[p,2],".png&w=350&h=254")
     if (status_code(GET(thisPic))==200) {
-      download.file(thisPic,destfile = paste0("images/",players_pics[p,2],".png"))
+      download.file(thisPic,destfile = paste0("images/",players_pics[p,1],".png"))
     }
   } 
 }
