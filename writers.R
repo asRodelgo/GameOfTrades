@@ -1116,7 +1116,7 @@ write_teamLogos <- function(){
 write_playersPics <- function(){
   
   # From: https://metrumresearchgroup.github.io/slickR/
-  library(svglite)
+  #library(svglite)
   #library(lattice)
   #library(ggplot2)
   library(rvest) 
@@ -1171,5 +1171,11 @@ write_playersPics <- function(){
       download.file(thisPic,destfile = paste0("images/",players_pics[p,1],".png"))
     }
   } 
+
+  setwd(paste0(getwd(),"/images"))
+  for (f in dir(".")) {
+    file.rename(f,tolower(gsub(" ","-",f)))
+  }
+  setwd(gsub("/images","",getwd()))
 }
 
