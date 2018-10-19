@@ -1179,3 +1179,15 @@ write_playersPics <- function(){
   setwd(gsub("/images","",getwd()))
 }
 
+match_playerPics_stats <- function() {
+  
+  playerPics <- data.frame(Player = gsub(".png","",dir("./images"),fixed=TRUE), stringsAsFactors = FALSE) %>%
+    filter(!grepl(".svg",Player,fixed=TRUE))
+  playerStats <- select(playerDashboard,Player) %>%
+    mutate(Player = enc2utf8(Player)) %>%
+    mutate(Player = tolower(gsub(" ","-",Player))) %>%
+    mutate(Player = str_trim(gsub("(tw)","",Player,fixed=TRUE)))
+  
+  nonMatches <- anti_join(playerPics,playerStats)
+  
+}
