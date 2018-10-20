@@ -1722,6 +1722,33 @@ simulate_n_seasons <- function(num_sim = 1) {
   return(data_team2)
 }
 
+# Obtain player that represent outliers to avoid weird stats popping up
+.get_PlayerOutliers <- function(data, threshold) {
+  
+  playerStats_quantiles99 <- data %>%
+    summarise_if(is.numeric, quantile, p=.99) %>%
+    gather(skill, quantile99)
+  
+  playerStats_quantiles01 <- data %>%
+    summarise_if(is.numeric, quantile, p=.01) %>%
+    gather(skill, quantile01)
+  
+  playerOutliers <- select(data,-Tm) %>%
+    filter(effMin < .006) %>%
+    gather(skill, value, -Player) %>%
+    left_join(playerStats_quantiles01, by = "skill") %>%
+    left_join(playerStats_quantiles99, by = "skill") %>%
+    mutate(outlier = if_else(value > quantile99, 1, 0)) %>%
+    filter(outlier == 1) %>%
+    group_by(Player) %>%
+    summarise(outlier_score = sum(outlier))
+  
+  p_outliers <- filter(playerOutliers, outlier_score >= threshold)$Player
+  
+  return(p_outliers)
+}
+
+
 ########## TEAMS ###########
 
 # ----------------------------

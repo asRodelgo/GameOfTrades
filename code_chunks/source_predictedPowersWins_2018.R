@@ -1,6 +1,7 @@
 # Teams Predicted powers and wins
 #
 # Team weighted final skills
+playersNewPredicted_Final_adjMinPer2 <- select(playersPredictedStats_adjPer, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
 prepareTeamData <- .prepareModelOncePredicted(playersNewPredicted_Final_adjMinPer2,"All")
 
 # Compute team powers using models

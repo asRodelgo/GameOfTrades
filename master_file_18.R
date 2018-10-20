@@ -143,29 +143,6 @@ library(rlist) # write list as file
     # save model
     list.save(model, "data/model_Offense_2018.Rdata")
     #
-    predict_data_Off <- playersPredictedStats_adjPer %>%
-      #filter(playersPredictedStats_adjPer, grepl("lebron|durant|westbro|curry|anthony dav|giann", tolower(Player))) %>%
-      select(-contains("Per"),-Pos,-Season,-Age,-Tm) %>%
-      rename_all(funs(gsub("eff","",.))) %>%
-      select(-Min,-FG,-FGA,-TRB,-PTS) %>%
-      rename_all(funs(gsub("2","X2",.))) %>%
-      rename_all(funs(gsub("3","X3",.))) %>%
-      rename_all(funs(gsub("M","",.))) %>%
-      mutate(FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
-             FG3Per = ifelse(X3PA==0,0,X3P/X3PA),
-             FTPer = ifelse(FTA==0,0,FT/FTA)) %>%
-      select(-BLK,-DRB,-FT,-FTA,-STL,-starts_with("X"))
-
-    efficient_Off <- predict(model, newdata = predict_data_Off)
-
-    points_data_Off <- playersPredictedStats_adjPer %>%
-      mutate(points = 40*5*(effFTM + 2*eff2PM + 3*eff3PM)) %>%
-      select(Player, points)
-
-    predicted_Offense <- data.frame(Player = predict_data_Off$Player,efficient_Off = as.numeric(efficient_Off))
-    predicted_Offense <- merge(predicted_Offense,points_data_Off, by = "Player") %>%
-      mutate(Offense = (2*points + efficient_Off)/3)
-
 ### 3. Model Defense linear regression
 
     dataToModel3 <- select(dataToModel2, -MP, -PTS, -score_diff)
@@ -191,11 +168,8 @@ library(rlist) # write list as file
       number = 10,
       ## repeated ten times
       repeats = 10)
-
-    ###### ---------------------------------
-    ###### Linear Regression ---------------------------------
-    ###### ---------------------------------
-    #
+    
+    # Linear Regression
     set.seed(825)
     glmFit <- train(PTSA ~ ., data = training,
                     method = "glm",
@@ -205,29 +179,11 @@ library(rlist) # write list as file
     # save model
     list.save(model, "data/model_Defense_2018.Rdata")
 
-    predict_data_Def <- playersPredictedStats_adjPer %>%
-      #filter(playersPredictedStats_adjPer, grepl("lebron|durant|westbro|curry|anthony dav|giann", tolower(Player))) %>%
-      select(-contains("Per"),-Pos,-Season,-Age,-Tm) %>%
-      rename_all(funs(gsub("eff","",.))) %>%
-      select(-Min,-FG,-FGA,-TRB,-PTS) %>%
-      rename_all(funs(gsub("2","X2",.))) %>%
-      rename_all(funs(gsub("3","X3",.))) %>%
-      rename_all(funs(gsub("M","",.))) %>%
-      select(-AST,-FT,-FTA,-starts_with("X"))
-
-    predicted_Def <- predict(model, newdata = predict_data_Def)
-    predicted_Defense <- data.frame(Player = predict_data_Def$Player,Defense = as.numeric(predicted_Def))
-
-### 4. Offense and Defense together
-
-    predicted_Off_Def <- merge(predicted_Offense, predicted_Defense, by = "Player") %>%
-      select(Player, Offense, Defense)
-
 # load models
 load("data/model_Offense_2018.Rdata")
-nn_Offense <- model$finalModel
+nn_Offense <- x$finalModel
 load("data/model_Defense_2018.Rdata")
-nn_Defense <- model$finalModel
+nn_Defense <- x$finalModel
 #
 # Adjusting players skills
 # Returning NBA players (played at least 1 minute in the NBA ever)
@@ -373,7 +329,28 @@ playersNewPredicted_Final_adjMin <- mutate(playersNewPredicted_Final,Exp = ifels
   mutate(effMin = ifelse(Pick > 0 & Exp == "R",effMin*(1-draftMinutesInNBA$`mean(minDiff)`[Pick]),
                          ifelse(Exp == "R",effMin*(1-col2nbaMinDiff),effMin))) %>%
   distinct(Player, .keep_all = TRUE)
+#
+## Control for outliers (players that for some reason got weird stats)
+outlierPlayers <- .get_PlayerOutliers(playersNewPredicted_Final,6)
+avgPlayer <- select(playersNewPredicted_Final_adjMin, -c(Player,Pos,Age,Tm,Exp)) %>%
+  group_by(Season) %>%
+  summarise_all(mean) %>%
+  ungroup() %>%
+  select(-Season,-Player)
 
+avgPlayers <- data.frame()
+for (o in 1:length(outlierPlayers)){
+  if (nrow(avgPlayers)>0) avgPlayers <- bind_rows(avgPlayer,avgPlayer) else avgPlayers <- avgPlayer
+}
+
+players2avg <- filter(playersNewPredicted_Final_adjMin, Player %in% outlierPlayers) %>%
+  select(Player,Season, Pos,Age,Tm,Exp) %>%
+  bind_cols(avgPlayers)
+
+playersNewPredicted_Final_adjMin <- filter(playersNewPredicted_Final_adjMin, !(Player %in% outlierPlayers)) %>%
+  rbind(players2avg) %>%
+  as.data.frame()
+###
 write.csv(playersNewPredicted_Final_adjMin, "data/playersNewPredicted_Final_adjMin.csv", row.names = FALSE)
 # 3. adjust percent of play time -----------------------------------
 # Based on historical data for the last 5 seasons:
@@ -429,40 +406,65 @@ write_gameScores()
 # Caching some files to speed up application start-up (folder: /cache_global/)
 # Basically all this would go inside the global.R file
 #
-# load limits for scaled data. Each trade will trigger a predict() from the selected NNet model
-# But scale limits must be kept as originally trained in the model for consistency
-team_stats_Off <- .prepareModel("PTS")
-write.csv(team_stats_Off, "cache_global/team_stats_Off.csv", row.names = FALSE)
-team_stats_Def <- .prepareModel("PTSA")
-write.csv(team_stats_Def, "cache_global/team_stats_Def.csv", row.names = FALSE)
-scaleMaxMin_Off <- .getScaleLimits("PTS", team_stats_Off)
-scaleMaxMin_Def <- .getScaleLimits("PTSA", team_stats_Def)
-scaleMaxMin_Off <- scaleMaxMin_Off[!(row.names(scaleMaxMin_Off) %in%
-                                       c("FGPer","FG3Per","FG2Per","effFGPer","FTPer","effFG","effFGA","effTRB","effPTS")),]
-scaleMaxMin_Def <- scaleMaxMin_Def[!(row.names(scaleMaxMin_Def) %in%
-                                       c("FGPer","FG3Per","FG2Per","effFGPer","FTPer","effFG","effFGA","effTRB","effPTS")),]
-write.csv(scaleMaxMin_Off, "cache_global/scaleMaxMin_Off.csv", row.names = FALSE)
-write.csv(scaleMaxMin_Def, "cache_global/scaleMaxMin_Def.csv", row.names = FALSE)
-maxs_Off <- scaleMaxMin_Off$maxs
-mins_Off <- scaleMaxMin_Off$mins
-maxs_Def <- scaleMaxMin_Def$maxs
-mins_Def <- scaleMaxMin_Def$mins
-maxs_vector_input <- cbind(maxs_Off,maxs_Def)
-mins_vector_input <- cbind(mins_Off,mins_Def)
-
-#
 # compute teams and players Offense and Defense
+#
+### Offense
+load("data/model_Offense_2018.Rdata")
+model <- x
+nn_Offense <- x$finalModel
+#
+predict_data_Off <- playersPredictedStats_adjPer %>%
+  #filter(playersPredictedStats_adjPer, grepl("lebron|durant|westbro|curry|anthony dav|giann", tolower(Player))) %>%
+  select(-contains("Per"),-Pos,-Season,-Age,-Tm) %>%
+  rename_all(funs(gsub("eff","",.))) %>%
+  select(-Min,-FG,-FGA,-TRB,-PTS) %>%
+  rename_all(funs(gsub("2","X2",.))) %>%
+  rename_all(funs(gsub("3","X3",.))) %>%
+  rename_all(funs(gsub("M","",.))) %>%
+  mutate(FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
+         FG3Per = ifelse(X3PA==0,0,X3P/X3PA),
+         FTPer = ifelse(FTA==0,0,FT/FTA)) %>%
+  select(-BLK,-DRB,-FT,-FTA,-STL,-starts_with("X"))
+
+efficient_Off <- predict(model, newdata = predict_data_Off)
+
+points_data_Off <- playersPredictedStats_adjPer %>%
+  mutate(points = 40*5*(effFTM + 2*eff2PM + 3*eff3PM)) %>%
+  select(Player, points)
+
+predicted_Offense <- data.frame(Player = predict_data_Off$Player,efficient_Off = as.numeric(efficient_Off))
+predicted_Offense <- merge(predicted_Offense,points_data_Off, by = "Player") %>%
+  mutate(Offense = (2*points + efficient_Off)/3)
+#
+### Defense
+load("data/model_Defense_2018.Rdata")
+model <- x
+nn_Defense <- model$finalModel
+
+predict_data_Def <- playersPredictedStats_adjPer %>%
+  #filter(playersPredictedStats_adjPer, grepl("lebron|durant|westbro|curry|anthony dav|giann", tolower(Player))) %>%
+  select(-contains("Per"),-Pos,-Season,-Age,-Tm) %>%
+  rename_all(funs(gsub("eff","",.))) %>%
+  select(-Min,-FG,-FGA,-TRB,-PTS) %>%
+  rename_all(funs(gsub("2","X2",.))) %>%
+  rename_all(funs(gsub("3","X3",.))) %>%
+  rename_all(funs(gsub("M","",.))) %>%
+  select(-AST,-FT,-FTA,-starts_with("X"))
+
+predicted_Def <- predict(model, newdata = predict_data_Def)
+predicted_Defense <- data.frame(Player = predict_data_Def$Player,Defense = as.numeric(predicted_Def))
+
+### Offense and Defense together
+predicted_Off_Def <- merge(predicted_Offense, predicted_Defense, by = "Player") %>%
+  select(Player, Offense, Defense)
+##
+##
 playersPredicted2 <- merge(predicted_Off_Def,playersPredictedStats_adjMin[,c("Player","Exp","Age","Tm","effMin")], by = "Player") %>%
   mutate(plusMinus = Offense - Defense,adjPlusMinus = plusMinus*effMin*100) %>%
   group_by(Tm) %>%
   mutate(teamPlusMinus = sum(adjPlusMinus,na.rm=TRUE)) %>%
   ungroup()
 
-playerDashboard <- merge(playersPredictedStats_adjPer,select(playersPredicted2, -c(Age,Tm,effMin)), by = "Player")
-playerRanks <- mutate_if(playerDashboard, is.numeric, function(x) row_number(desc(x)))
-write.csv(playerDashboard, "cache_global/playerDashboard.csv", row.names=FALSE)
-write.csv(playerRanks, "cache_global/playerRanks.csv", row.names=FALSE)
-#
 # Average player
 avg_Exp <- mean(as.numeric(gsub("R","0",playersPredictedStats_adjMin$Exp)), na.rm=TRUE)
 averagePlayer <- .calculate_AvgPlayer(playersPredictedStats_adjMin) %>% mutate(Exp = as.character(floor(avg_Exp))) %>%
@@ -470,6 +472,11 @@ averagePlayer <- .calculate_AvgPlayer(playersPredictedStats_adjMin) %>% mutate(E
   mutate(Age = round(Age,0)) %>%
   as.data.frame()
 write.csv(averagePlayer, "cache_global/averagePlayer.csv", row.names=FALSE)
+#
+playerDashboard <- merge(playersPredictedStats_adjPer,select(playersPredicted2, -c(Age,Tm,effMin)), by = "Player")
+playerRanks <- mutate_if(playerDashboard, is.numeric, function(x) row_number(desc(x)))
+write.csv(playerDashboard, "cache_global/playerDashboard.csv", row.names=FALSE)
+write.csv(playerRanks, "cache_global/playerRanks.csv", row.names=FALSE)
 #
 # Regular Season schedule
 conferences <- read.csv("data/nba_conferences.csv", stringsAsFactors = FALSE) # Same as franchises
