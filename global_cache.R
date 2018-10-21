@@ -39,33 +39,39 @@ playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.
   distinct(Player, .keep_all = TRUE)
 
 # load neuralnet models
-load("data/modelNeuralnet19_PTS.Rdata")
-nn_Offense <- model$finalModel
-load("data/modelNeuralnet19_PTSA.Rdata")
-nn_Defense <- model$finalModel
+#load("data/modelNeuralnet19_PTS.Rdata")
+#nn_Offense <- model$finalModel
+#load("data/modelNeuralnet19_PTSA.Rdata")
+#nn_Defense <- model$finalModel
+load("data/model_Offense_2018.Rdata")
+model <- x
+nn_Offense <- x$finalModel
+load("data/model_Defense_2018.Rdata")
+model <- x
+nn_Defense <- x$finalModel
+
 # load limits for scaled data. Each trade will trigger a predict() from the selected NNet model
 # But scale limits must be kept as originally trained in the model for consistency
 team_stats_Off <- read.csv("cache_global/team_stats_Off.csv", stringsAsFactors = FALSE)
 team_stats_Def <- read.csv("cache_global/team_stats_Def.csv", stringsAsFactors = FALSE)
-scaleMaxMin_Off <- read.csv("cache_global/scaleMaxMin_Off.csv", stringsAsFactors = FALSE)
-scaleMaxMin_Def <- read.csv("cache_global/scaleMaxMin_Def.csv", stringsAsFactors = FALSE)
-maxs_Off <- scaleMaxMin_Off$maxs
-mins_Off <- scaleMaxMin_Off$mins
-maxs_Def <- scaleMaxMin_Def$maxs
-mins_Def <- scaleMaxMin_Def$mins
-maxs_vector_input <- cbind(maxs_Off,maxs_Def)
-mins_vector_input <- cbind(mins_Off,mins_Def)
+# scaleMaxMin_Off <- read.csv("cache_global/scaleMaxMin_Off.csv", stringsAsFactors = FALSE)
+# scaleMaxMin_Def <- read.csv("cache_global/scaleMaxMin_Def.csv", stringsAsFactors = FALSE)
+# maxs_Off <- scaleMaxMin_Off$maxs
+# mins_Off <- scaleMaxMin_Off$mins
+# maxs_Def <- scaleMaxMin_Def$maxs
+# mins_Def <- scaleMaxMin_Def$mins
+# maxs_vector_input <- cbind(maxs_Off,maxs_Def)
+# mins_vector_input <- cbind(mins_Off,mins_Def)
 
 # compute teams and players Offense and Defense
-source("code_chunks/source_computeOffenseDefense.R",local=TRUE)
-playersNewPredicted_Final_adjMinPer2 <- select(playersPredictedStats_adjPer, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
-playersNewPredicted_OffDef <- mutate(playersNewPredicted_Final_adjMinPer2, Tm = Player, effMin = 1)
-playersPredicted <- read.csv("cache_global/playersPredicted.csv", stringsAsFactors = FALSE)
-playersPredicted2 <- merge(playersPredicted,playersPredictedStats_adjMin[,c("Player","Exp","Age","Tm","effMin")], by = "Player") %>%
-  mutate(adjPlusMinus = plusMinus*effMin*100) %>%
+#source("code_chunks/source_computeOffenseDefense_2018.R",local=TRUE)
+#playersNewPredicted_Final_adjMinPer2 <- select(playersPredictedStats_adjPer, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
+#playersNewPredicted_OffDef <- mutate(playersNewPredicted_Final_adjMinPer2, Tm = Player, effMin = 1)
+playersPredicted_Off_Def <- read.csv("cache_global/playersPredicted_Off_Def.csv", stringsAsFactors = FALSE)
+playersPredicted2 <- merge(playersPredicted_Off_Def,playersPredictedStats_adjMin[,c("Player","Exp","Age","Tm","effMin")], by = "Player") %>%
+  mutate(plusMinus = Offense - Defense,adjPlusMinus = plusMinus*effMin*100) %>%
   group_by(Tm) %>%
   mutate(teamPlusMinus = sum(adjPlusMinus,na.rm=TRUE)) %>%
-  distinct(Player, .keep_all = TRUE) %>%
   ungroup()
 
 playerDashboard <- read.csv("cache_global/playerDashboard.csv", stringsAsFactors = FALSE) %>%

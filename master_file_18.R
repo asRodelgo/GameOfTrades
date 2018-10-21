@@ -350,6 +350,11 @@ players2avg <- filter(playersNewPredicted_Final_adjMin, Player %in% outlierPlaye
 playersNewPredicted_Final_adjMin <- filter(playersNewPredicted_Final_adjMin, !(Player %in% outlierPlayers)) %>%
   rbind(players2avg) %>%
   as.data.frame()
+
+### Make sure no percentages are off (FT%, FG%, etc)
+playersNewPredicted_Final_adjMin <- mutate_at(playersNewPredicted_Final_adjMin, 
+                                              vars(contains("Per")), function(x) ifelse(x >=.95, quantile(x,.95), x))
+
 ###
 write.csv(playersNewPredicted_Final_adjMin, "data/playersNewPredicted_Final_adjMin.csv", row.names = FALSE)
 # 3. adjust percent of play time -----------------------------------
@@ -457,6 +462,7 @@ predicted_Defense <- data.frame(Player = predict_data_Def$Player,Defense = as.nu
 ### Offense and Defense together
 predicted_Off_Def <- merge(predicted_Offense, predicted_Defense, by = "Player") %>%
   select(Player, Offense, Defense)
+write.csv(predicted_Off_Def,"cache_global/playersPredicted_Off_Def.csv", row.names=FALSE)
 ##
 ##
 playersPredicted2 <- merge(predicted_Off_Def,playersPredictedStats_adjMin[,c("Player","Exp","Age","Tm","effMin")], by = "Player") %>%
