@@ -30,118 +30,6 @@ function(input, output, session) {
 
   }, deleteFile = FALSE)
 
-  vOff <- reactive({
-    data <- filter(values$playersDatabase, Player == input$playerName) %>%
-      select(Offense) %>% as.numeric()
-    data
-  })
-
-  rOff <- reactive({
-    data <- filter(values$playersRanks, Player == input$playerName) %>%
-      select(Offense) %>% as.numeric()
-    data
-  })
-
-  output$offBox_p <- shinydashboard::renderValueBox({
-
-    shinydashboard::valueBox(
-      value = formatC(vOff(), digits = 1, format = "f"),
-      subtitle = paste0("Offense (#",rOff(),")"),
-      icon = "",
-      color = ifelse(rOff() < nrow(values$playersRanks)/3,"green",ifelse(rOff() < nrow(values$playersRanks)*2/3,"lightblue","red"))
-    )
-  })
-
-  vDef <- reactive({
-    data <- filter(values$playersDatabase, Player == input$playerName) %>%
-      select(Defense) %>% as.numeric()
-    data
-  })
-
-  rDef <- reactive({
-    data <- filter(values$playersRanks, Player == input$playerName) %>%
-      mutate(Defense = nrow(values$playersRanks)-Defense+1) %>%
-      select(Defense) %>% as.numeric()
-    data
-  })
-
-  output$defBox_p <- shinydashboard::renderValueBox({
-
-    shinydashboard::valueBox(
-      value = formatC(vDef(), digits = 1, format = "f"),
-      subtitle = paste0("Defense (#",rDef(),")"),
-      icon = "",
-      color = ifelse(rDef() < nrow(values$playersRanks)/3,"green",ifelse(rDef() < nrow(values$playersRanks)*2/3,"lightblue","red"))
-    )
-  })
-
-  vMin <- reactive({
-    data <- filter(values$playersDatabase, Player == input$playerName) %>%
-      select(effMin) %>% as.numeric()
-    data
-  })
-
-  rMin <- reactive({
-    data <- filter(values$playersRanks, Player == input$playerName) %>%
-      select(effMin) %>% as.numeric()
-    data
-  })
-
-  output$useBox_p <- shinydashboard::renderValueBox({
-
-    shinydashboard::valueBox(
-      value = paste0(formatC(vMin()*1000, digits = 1, format = "f"),"%"),
-      subtitle = paste0("Usage (#",rMin(),")"),
-      icon = "",
-      color = ifelse(rMin() < nrow(values$playersRanks)/3,"green",ifelse(rMin() < nrow(values$playersRanks)*2/3,"lightblue","red"))
-    )
-  })
-
-  vExp <- reactive({
-    data <- filter(values$playersDatabase, Player == input$playerName) %>%
-      select(Exp) %>% as.character()
-    data
-  })
-
-  output$expBox_p <- shinydashboard::renderValueBox({
-
-    shinydashboard::valueBox(
-      value = vExp(),
-      icon = "",
-      color = "lightgrey"
-    )
-  })
-
-  vAge <- reactive({
-    data <- filter(values$playersDatabase, Player == input$playerName) %>%
-      select(Age) %>% as.numeric()
-    data
-  })
-
-  output$ageBox_p <- shinydashboard::renderValueBox({
-
-    shinydashboard::valueBox(
-      value = vAge(),
-      icon = "",
-      color = "lightgrey"
-    )
-  })
-
-  vTm <- reactive({
-    data <- filter(values$playersDatabase, Player == input$playerName) %>%
-      select(Tm) %>% as.character()
-    data
-  })
-
-  output$tmBox_p <- shinydashboard::renderValueBox({
-
-    shinydashboard::valueBox(
-      value = vTm(),
-      icon = "",
-      color = "lightgrey"
-    )
-  })
-
   barplotPlayerStats <- reactive({
 
     off_def <- filter(values$playersDatabase, Player == input$playerName) %>%
@@ -358,4 +246,59 @@ function(input, output, session) {
 
   output$tsneHist_p <- renderPlot(tsne_historical())
 
+  output$radarPlayerStats <- renderChartJSRadar({
+    library(radarchart)
+    
+    data <- filter(values$playersDatabase, Player == input$playerName) %>%
+    #data <- filter(playerDashboard, Player == "Kevin Durant") %>%
+      select(contains("eff"), contains("Per")) %>%
+      gather(Stat, Value)
+    #mutate(Value = ifelse(grepl("Per",Stat), paste0(round(Value*100,1),"%"),
+    #                     ifelse(grepl("Min",Stat), paste0(round(Value*1000,1),"%"),round(Value,2))))
+    
+    # ranks <- filter(values$playersRanks, Player == input$playerName) %>%
+    #   #ranks <- filter(playerRanks, Player == "Kevin Durant") %>%
+    #   select(contains("eff"), contains("Per")) %>%
+    #   gather(Stat, Value) %>%
+    #   mutate(color = ifelse(grepl("TOV|PF",Stat),
+    #                         ifelse(Value > nrow(values$playersDatabase)/3,"green",
+    #                                ifelse(Value > nrow(values$playersDatabase)*2/3,"lightblue","red")),
+    #                         ifelse(Value < nrow(values$playersDatabase)/3,"green",
+    #                                ifelse(Value < nrow(values$playersDatabase)*2/3,"lightblue","red")))) %>%
+    #   mutate(Rank = Value) %>%
+    #   select(-Value)
+    
+    # data <- merge(data,ranks[,c("Stat","Rank","color")],by="Stat") %>%
+    #   mutate(order = c(8,7,11,10,15,20,17,5,4,2,14,13,23,18,22,1,19,21,16,6,9,3,12)) %>%
+    #   mutate(Stat = as.factor(Stat)) %>%
+    #   arrange(order)
+    
+    # maxs <- select(playerMax, contains("eff"), contains("Per")) %>%
+    #   gather(Stat, Value) %>%
+    #   mutate(Stat = as.factor(Stat)) %>%
+    #   merge(data[,c("Stat","order")],by="Stat") %>%
+    #   arrange(order)
+    # 
+    #data$Stat = factor(data$Stat, levels = data$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
+    #                   labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF","Usage"))
+    
+    # maxs$Stat = factor(maxs$Stat, levels = maxs$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
+    #                    labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF","Usage"))
+    # 
+    stats <- data$Stat
+    
+    scores <- list(
+      #paste0(input$playerName) = data$Value
+      "this player" = data$Value
+    )
+    
+    chartJSRadar(scores = scores, labs = stats, maxScale = 1, polyAlpha = 0)
+    
+  })
+  
+  
+  
 }
+
+
+
