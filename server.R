@@ -30,6 +30,18 @@ function(input, output, session) {
 
   }, deleteFile = FALSE)
 
+  output$playerLogo2 <- renderImage({
+    filename <- normalizePath(file.path('./images',
+                                        paste(tolower(gsub(" ","-",input$playerName2)), '.png', sep='')))
+    
+    # Return a list containing the filename and alt text
+    list(src = filename,
+         width = 200,
+         height = 150,
+         alt = paste("Player: ", input$playerName2))
+    
+  }, deleteFile = FALSE)
+  
   barplotPlayerStats <- reactive({
 
     off_def <- filter(values$playersDatabase, Player == input$playerName) %>%
@@ -256,10 +268,22 @@ function(input, output, session) {
     #mutate(Value = ifelse(grepl("Per",Stat), paste0(round(Value*100,1),"%"),
     #                     ifelse(grepl("Min",Stat), paste0(round(Value*1000,1),"%"),round(Value,2))))
     
-    # ranks <- filter(values$playersRanks, Player == input$playerName) %>%
-    #   #ranks <- filter(playerRanks, Player == "Kevin Durant") %>%
-    #   select(contains("eff"), contains("Per")) %>%
-    #   gather(Stat, Value) %>%
+    ranks <- filter(values$playersRanks, Player == input$playerName) %>%
+      #ranks <- filter(playerRanks, Player == "Kevin Durant") %>%
+      select(contains("eff"), contains("Per")) %>%
+      gather(Stat, Value) %>%
+      mutate(Value = (nrow(playerRanks)-Value + 1)/nrow(playerRanks)) %>%
+      spread(Stat, Value) %>%
+      mutate(Scoring = effPTS,
+               #(3*eff3PM + 2*eff2PM + effFTM)/6,
+             Accuracy = effFGPer,
+             Assists = effAST,
+             Rebounds = effTRB,
+             Blocks = effBLK,
+             Three_Point = (2*eff3PM + eff3PA)/3,
+             Usage = effMin) %>%
+        select(-contains("eff"), -contains("Per")) %>%
+        gather(Stat, Value)
     #   mutate(color = ifelse(grepl("TOV|PF",Stat),
     #                         ifelse(Value > nrow(values$playersDatabase)/3,"green",
     #                                ifelse(Value > nrow(values$playersDatabase)*2/3,"lightblue","red")),
@@ -285,18 +309,52 @@ function(input, output, session) {
     # maxs$Stat = factor(maxs$Stat, levels = maxs$Stat[order(data$order, decreasing = FALSE)], ordered=TRUE,
     #                    labels = c("Points","effFG%","FG%","FG_A","FG_M","FG_2P%","FG_2PM","FG_2PA","FG_3P%","FG_3PM","FG_3PA","FT%","FT_M","FT_A","AST","TRB","DRB","ORB","STL","BLK","TOV","PF","Usage"))
     # 
-    stats <- data$Stat
+    stats <- ranks$Stat
     
     scores <- list(
-      #paste0(input$playerName) = data$Value
-      "this player" = data$Value
+      #eval(parse(text=input$playerName)) = ranks$Value
+      "this player" = ranks$Value
     )
     
     chartJSRadar(scores = scores, labs = stats, maxScale = 1, polyAlpha = 0)
     
   })
   
-  
+  output$radarPlayerStats2 <- renderChartJSRadar({
+    library(radarchart)
+    
+    data <- filter(values$playersDatabase, Player == input$playerName2) %>%
+      #data <- filter(playerDashboard, Player == "Kevin Durant") %>%
+      select(contains("eff"), contains("Per")) %>%
+      gather(Stat, Value)
+    #mutate(Value = ifelse(grepl("Per",Stat), paste0(round(Value*100,1),"%"),
+    #                     ifelse(grepl("Min",Stat), paste0(round(Value*1000,1),"%"),round(Value,2))))
+    
+    ranks <- filter(values$playersRanks, Player == input$playerName2) %>%
+      #ranks <- filter(playerRanks, Player == "Kevin Durant") %>%
+      select(contains("eff"), contains("Per")) %>%
+      gather(Stat, Value) %>%
+      mutate(Value = (nrow(playerRanks)-Value + 1)/nrow(playerRanks)) %>%
+      spread(Stat, Value) %>%
+      mutate(Scoring = effPTS,
+             #(3*eff3PM + 2*eff2PM + effFTM)/6,
+             Accuracy = effFGPer,
+             Assists = effAST,
+             Rebounds = effTRB,
+             Blocks = effBLK,
+             Three_Point = (2*eff3PM + eff3PA)/3,
+             Usage = effMin) %>%
+      select(-contains("eff"), -contains("Per")) %>%
+      gather(Stat, Value)
+
+    stats <- ranks$Stat
+    scores <- list(
+      #eval(parse(text=input$playerName)) = ranks$Value
+      "this player" = ranks$Value
+    )
+    chartJSRadar(scores = scores, labs = stats, maxScale = 1, polyAlpha = 0)
+    
+  })
   
 }
 

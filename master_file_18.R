@@ -462,6 +462,7 @@ predicted_Defense <- data.frame(Player = predict_data_Def$Player,Defense = as.nu
 ### Offense and Defense together
 predicted_Off_Def <- merge(predicted_Offense, predicted_Defense, by = "Player") %>%
   select(Player, Offense, Defense)
+
 write.csv(predicted_Off_Def,"cache_global/playersPredicted_Off_Def.csv", row.names=FALSE)
 ##
 ##
@@ -496,6 +497,12 @@ global_mean <- mean(c(as.numeric(gameScores$pts_home),as.numeric(gameScores$pts_
 home_away_factor <- avgHome - avgAway # how many extra points does a team score on average when playing home
 # Teams Predicted powers and wins
 source("code_chunks/source_predictedPowersWins_2018.R",local=TRUE)
+write.csv(teamsPredicted, "cache_global/teamsPredicted.csv", row.names=FALSE)
+write.csv(win_predictions, "cache_global/win_predictions.csv", row.names=FALSE)
+write.csv(teamDashboard, "cache_global/teamDashboard.csv", row.names=FALSE)
+write.csv(teamRanks, "cache_global/teamRanks.csv", row.names=FALSE)
+write.csv(teamStats, "cache_global/teamStats.csv", row.names=FALSE)
+#
 regSeasonOutcome <- .standings(real=TRUE)
 standings <- regSeasonOutcome[[1]]
 games <- regSeasonOutcome[[2]]
