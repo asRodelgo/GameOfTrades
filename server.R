@@ -356,6 +356,9 @@ function(input, output, session) {
     
   })
   
+## TEAMS
+  source("server_files/server_game.R", local = TRUE)
+  
 }
 
 

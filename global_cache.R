@@ -11,6 +11,7 @@ library(shinyjs)
 library(caret)
 library(neuralnet) # neural network for regression
 library(rlist) # write list as file
+library(radarchart)
 #library(shinydashboard)
 
 # variables set up
@@ -99,6 +100,7 @@ averagePlayer <- read.csv("cache_global/averagePlayer.csv", stringsAsFactors = F
 # Actual Season schedule
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
+datesRange <- datesRange[which(datesRange>"2018-10-12")]
 ### Global hyperparameters for Normal distributions
 # get game scores from past 7 seasons (since 2009-2010)
 gameScores <- read.csv("data/gameScores.csv", stringsAsFactors = FALSE) # write_scoreDifferentials.R 
@@ -125,6 +127,7 @@ tsne_ready_teams <- read.csv("data/tsne_ready_teams.csv", stringsAsFactors = FAL
 conferences <- read.csv("data/nba_conferences.csv", stringsAsFactors = FALSE) # Same as franchises 
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
+datesRange <- datesRange[which(datesRange>"2018-10-12")]
 standings <- list.load("cache_global/standings.rds")
 games <- read.csv("cache_global/games.csv", stringsAsFactors = FALSE)
 
