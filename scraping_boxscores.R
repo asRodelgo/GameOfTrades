@@ -11,7 +11,7 @@ franchises <- read.csv("data/franchisesHistory.csv",stringsAsFactors = FALSE) %>
 
 months <- c("01","02","03","04","05","10","11","12")
 days <- c(1:31)
-for (thisYear in c(1996:thisSeason)) {
+for (thisYear in c((as.numeric(thisSeason)-seasonOffset):(as.numeric(thisSeason)))) {
   for (thisTeam in franchises$teamCode){
     for (thisMonth in months) {
       for (thisDay in days) {
@@ -56,6 +56,7 @@ for (thisYear in c(1996:thisSeason)) {
     }
   }
 }
+
 
 # final dataset
 box_scores1 <- read.csv("data/box_scores_1980_1995.csv", stringsAsFactors = FALSE)

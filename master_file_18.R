@@ -1,6 +1,9 @@
 ### Follow this script at the beginning of a new season or at any point in time
 ### during the regular season to update rosters or players skills
 
+##### ACTIVATE WRITERS ?? ------------------------------
+activeWriters <- TRUE
+
 ##### INITIAL LOADS ------------------------------------
 # Load packages, global variables, functions
 library(flexdashboard)
@@ -31,14 +34,14 @@ source("writers.R", local=TRUE)
 ##### UPDATE DATASETS ----------------
 # update historical player data.
 # returns: playersHist.csv
-write_playersHist()
+if (activeWriters) write_playersHist()
 playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE) # from write_playersHist.R
 # differentiate players with the same name
 playersHist <- .rename_PlayerDuplicates(playersHist)
 #
 # update teams historical stats
 # returns: teamStats.csv
-write_teamStats(what_season = thisYear)
+if (activeWriters) write_teamStats(what_season = thisYear)
 team_stats <- read.csv("data/teamStats.csv", stringsAsFactors = FALSE) # from write_TeamStats.R
 #
 # These data may not change from season to season. Only if there are name changes, expansion teams, etc
@@ -49,7 +52,7 @@ team_stats <- left_join(team_stats, franchises, by = c("Team"="Franchise"))
 # Pre-compute tsne_points for all ages to save time as these computations don't really
 # depend on the player selected.
 library(tsne)
-write_tsneBlocks()
+if (activeWriters) write_tsneBlocks()
 # read the tsne blocks
 tsneBlock <- list()
 for (a in 18:41){
@@ -57,11 +60,11 @@ for (a in 18:41){
 }
 #
 # Actual Season schedule
-write_realSeasonSchedule()
+if (activeWriters) write_realSeasonSchedule()
 realSeasonSchedule <- read.csv("data/realSeasonSchedule.csv",stringsAsFactors = FALSE) # from write_seasonSchedule.R
 datesRange <- unique(realSeasonSchedule$Date)
 # filter by the exact dates
-datesRange <- datesRange[which(datesRange>"2018-10-12")]
+#datesRange <- datesRange[which(datesRange>"2018-10-12")]
 #
 # New 2018 Offense and Defense models:
 library(rlist) # write list as file
@@ -72,11 +75,15 @@ library(rlist) # write list as file
 ### Defense: Compute a linear regression model using all scorebox game totals since 1985:
 ##### Step 1: Include only DRB, ORB, TOV, STL, BLK and PF
 #
-### 1. Prepare the data:
-    box_scores1 <- read.csv("data/box_scores_1980_1995.csv", stringsAsFactors = FALSE)
-    box_scores2 <- read.csv("data/box_scores_1996_2018.csv", stringsAsFactors = FALSE)
-    box_scores_all <- bind_rows(box_scores1,box_scores2) %>%
+if (activeWriters) {
+  load("data/box_scores.Rdata") # load historical box scores
+  write_update_boxscores(latestSeason = max(box_scores_all$Year)) #write new box scores
+### 1. Prepare the data: 
+    box_scores <- read.csv("data/box_scores.csv", stringsAsFactors = FALSE) %>% # read new box_scores
       mutate_at(vars(-matches("Player|Starter|Tm")), as.numeric)
+    box_scores_all <- bind_rows(box_scores_all,box_scores) %>%
+      mutate_at(vars(-matches("Player|Starter|Tm")), as.numeric)
+    #save(box_scores_all, file = paste0("data/box_scores.Rdata"))
 
     box_scores_totals <- filter(box_scores_all, grepl("Total",Player) | grepl("Total",Starters)) %>%
       filter(Year >= 1985) # data before 85 has holes
@@ -110,8 +117,10 @@ library(rlist) # write list as file
     library(caret)
     dataToModel3 <- select(dataToModel2, -MP, -score_diff, -PTSA)
     dataToModel3 <- mutate(dataToModel3, FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
-                           FG3Per = ifelse(X3PA==0,0,X3P/X3PA), FTPer = ifelse(FTA==0,0,FT/FTA))
-    dataToModel3 <- select(dataToModel3, -BLK,-DRB,-FT,-FTA,-STL,-starts_with("X"))
+                           FG3Per = ifelse(X3PA==0,0,X3P/X3PA), FTPer = ifelse(FTA==0,0,FT/FTA),
+                           FG2A = X2PA, FG3A = X3PA)
+    #dataToModel3 <- select(dataToModel3, -BLK,-DRB,-FT,-FTA,-STL,-starts_with("X"))
+    dataToModel3 <- select(dataToModel3, -FT,-starts_with("X"))
 
     set.seed(998)
     perc <- 0.8
@@ -141,12 +150,15 @@ library(rlist) # write list as file
 
     model <- glmFit # pick the model
     # save model
-    list.save(model, "data/model_Offense_2018.Rdata")
+    list.save(model, "data/model_Offense_2020.Rdata")
     #
 ### 3. Model Defense linear regression
 
     dataToModel3 <- select(dataToModel2, -MP, -PTS, -score_diff)
-    dataToModel3 <- select(dataToModel3, -AST,-FT,-FTA,-starts_with("X"))
+    dataToModel3 <- mutate(dataToModel3, FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
+                           FG3Per = ifelse(X3PA==0,0,X3P/X3PA), FTPer = ifelse(FTA==0,0,FT/FTA),
+                           FG2A = X2PA, FG3A = X3PA)
+    dataToModel3 <- select(dataToModel3, -FT,-starts_with("X"))
 
     set.seed(998)
     perc <- 0.8
@@ -177,18 +189,18 @@ library(rlist) # write list as file
 
     model <- glmFit # pick the model
     # save model
-    list.save(model, "data/model_Defense_2018.Rdata")
-
+    list.save(model, "data/model_Defense_2020.Rdata")
+}
 # load models
-load("data/model_Offense_2018.Rdata")
+load("data/model_Offense_2020.Rdata")
 nn_Offense <- x$finalModel
-load("data/model_Defense_2018.Rdata")
+load("data/model_Defense_2020.Rdata")
 nn_Defense <- x$finalModel
 #
 # Adjusting players skills
 # Returning NBA players (played at least 1 minute in the NBA ever)
-write_playersNewPredicted() # THIS IS WHERE ALL THE MAGIC HAPPENS, MOSTLY IN .predictPlayer() helper function
-playersNewPredicted <- read.csv("data/playersNewPredicted_Sep8_18.csv", stringsAsFactors = FALSE) %>% # from .computePredictedPlayerStats() in write_teams_predicted_stats_new_season.R
+if (activeWriters) write_playersNewPredicted() # THIS IS WHERE ALL THE MAGIC HAPPENS, MOSTLY IN .predictPlayerWeighted() helper function
+playersNewPredicted <- read.csv("data/playersNewPredicted_2020.csv", stringsAsFactors = FALSE) %>% # from .computePredictedPlayerStats() in write_teams_predicted_stats_new_season.R
   distinct(Player, .keep_all=TRUE) %>% select(-c(Pos,Season,Age))
 # make sure no shooting percentages are > 1
 playersNewPredicted <- mutate_at(playersNewPredicted, vars(contains("Per")), function(x) ifelse(x >=1, quantile(x,.99), x))
@@ -202,28 +214,28 @@ playersNewPredicted <- group_by(playersNewPredicted, Player) %>%
 # Handle rookies
 # History of drafts.
 # writes: rookiesDraftHist.csv
-write_rookiesDraftHist()
+if (activeWriters) write_rookiesDraftHist()
 # write all rookies (all draft rounds and non drafted)
 # writes: rookies.csv
-write_rookies()
+if (activeWriters) write_rookies()
 # write college players stats from last season
 # writes: collegePlayers.csv
-write_collegePlayers()
+if (activeWriters) write_collegePlayers()
 # read rookies and college players (to grab their stats) and merge them. There will be differences in
 # names so I have to manually change those. For now, I won't do anything manually
 # If no manual changes required, simply run this:
 # writes: rookieStats.csv, europePlayers.csv
-write_rookieStats_europePlayers()
+if (activeWriters) write_rookieStats_europePlayers()
 rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
 # Once per game stats have been compiled for all rookies (college and international) compute their
 # per-minute stats. Writes: rookieEfficientStats.csv
-write_rookieEfficientStats()
+if (activeWriters) write_rookieEfficientStats()
 rookieEffStats <- read.csv("data/rookieEfficientStats.csv", stringsAsFactors = FALSE) %>% # write_Rookies_efficientStats in write_rookiesDraft.R
   select(-c(Season,Age)) %>% mutate(effFGPer = ifelse(effFGPer <= 0.001,FGPer,effFGPer)) # international players don't have this calculated so their per = 0
 #
 # next step current_rosters
 # writes: currentRosters.csv
-write_currentRosters_rostersLastSeason()
+if (activeWriters) write_currentRosters_rostersLastSeason()
 current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE) %>%
   distinct(Player, .keep_all=TRUE)
 # merge current rosters with players calculated efficient stats
@@ -266,7 +278,7 @@ playerSet_Leftover <- group_by(playerSet_Leftover, Player) %>%
   mutate_all(function(x) ifelse(is.na(x),0,x)) %>%
   ungroup()
 
-write.csv(playerSet_Leftover,"data/playerPredicted_Leftover.csv", row.names = FALSE)
+if (activeWriters) write.csv(playerSet_Leftover,"data/playerPredicted_Leftover.csv", row.names = FALSE)
 playerSet_Leftover <- read.csv("data/playerPredicted_Leftover.csv", stringsAsFactors = FALSE)
 playerSet_Leftover <- mutate(playerSet_Leftover, Season = current_rosters$Season[1]) %>%
   mutate_at(vars(contains("Per")), function(x) ifelse(x >= 1, mean(x, na.rm=TRUE), x)) # to avoid players with 100% shot accuracy (because they may have taken just very few shots and converted all)
@@ -275,14 +287,14 @@ playersNewPredicted_Final <- bind_rows(playerSet_aPlusc,playerSet_Leftover)
 # check this file has same rows as current_rosters
 checkFinalRosters <- merge(playersNewPredicted_Final,current_rosters, by="Player", all.x = TRUE)
 # Write final file:
-write.csv(playersNewPredicted_Final, "data/playersNewPredicted_FINAL.csv",row.names = FALSE)
+if (activeWriters) write.csv(playersNewPredicted_Final, "data/playersNewPredicted_FINAL.csv",row.names = FALSE)
 #
 #
 ################ Compute powers #################
 #
 #
 # write college players History
-write_collegePlayersHist(col_G = 15,num_pages = 30,firstDraft = 1994,lastDraft=as.numeric(thisYear))
+if (activeWriters) write_collegePlayersHist(col_G = 15,num_pages = 30,firstDraft = 1994,lastDraft=as.numeric(thisYear))
 collegePlayersHist <- read.csv("data/collegePlayersHist.csv", stringsAsFactors = FALSE)
 rookiesDraftHist <- read.csv("data/rookiesDraftHist.csv", stringsAsFactors = FALSE)
 #

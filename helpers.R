@@ -948,7 +948,7 @@ simulate_n_seasons <- function(num_sim = 1) {
   
   # Top 10 more similar to selected player for past 5 years
   top10_similar <- head(.similarPlayers(playerName,numberPlayersToCompare,pickAge),numberTeamsForVariation)$Player
-  thisAgeFrame <- filter(playersHist, Player == playerName, Season >= paste0(as.numeric(thisYear)-pickAge+18,"-",as.numeric(thisYear)-pickAge+19))
+  thisAgeFrame <- filter(playersHist, Player == playerName, Season >= paste0(as.numeric(thisYear)-seasonOffset-pickAge+18,"-",as.numeric(thisYear)-pickAge+19))
   
   maxAge <- max(thisAgeFrame$Age)
   minutesPlayedLastSeason <- filter(thisAgeFrame, Player == playerName, Age == maxAge)$G*filter(thisAgeFrame, Player == playerName, Age == maxAge)$MP
@@ -1030,6 +1030,34 @@ simulate_n_seasons <- function(num_sim = 1) {
   
   
   return(predAgeData)
+  
+}
+
+.predictPlayerWeighted <- function(playerName){
+  
+  thisPlayerHist <- filter(playersHist, Player == playerName) %>%
+    arrange(Season) %>%
+    mutate(weight = row_number()*G)
+    
+  thisPlayerMeta <- select(thisPlayerHist, Player, Pos, Season, Age) %>%
+    tail(1)
+    
+  weighted_stats <- summarize_if(thisPlayerHist, is.numeric, function(x) weighted.mean(x,thisPlayerHist$weight)) %>%
+    mutate(effMin = MP/3936, effFG = FG/(3936*effMin),
+           effFGA = FGA/(3936*effMin),eff3PM = X3P/(3936*effMin),eff3PA = X3PA/(3936*effMin),
+           eff2PM = X2P/(3936*effMin),eff2PA = X2PA/(3936*effMin),
+           effFTM = FT/(3936*effMin),effFTA = FTA/(3936*effMin),
+           effORB = ORB/(3936*effMin),effDRB = DRB/(3936*effMin),
+           effTRB = TRB/(3936*effMin),effAST = AST/(3936*effMin),
+           effSTL = STL/(3936*effMin),effBLK = BLK/(3936*effMin),
+           effTOV = TOV/(3936*effMin),effPF = PF/(3936*effMin),
+           effPTS = PTS/(3936*effMin)) %>%
+    select(FGPer = FG.,FG3Per = X3P., FG2Per = X2P., effFGPer = eFG.,
+                  FTPer = FT., starts_with("eff"),
+                  -G,-GS,-MP,FG,-FGA,-X3P,-X3PA,-X2P,-X2PA,-FG,-FTA,-ORB,-DRB,-TRB,-AST,
+                  -BLK,-TOV,-PF,-FT,-STL,-PTS)
+  playerStats <- bind_cols(thisPlayerMeta, weighted_stats)
+  return(playerStats)
   
 }
 

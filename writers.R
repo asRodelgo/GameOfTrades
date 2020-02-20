@@ -142,7 +142,7 @@ write_playersNewPredicted <- function() {
       if (thisPlayer$Age > 39) { # not enough players to compare to at age 41 or older
         thisPlayer$Age <- 39
       }
-      thisPlayerStats <- .predictPlayer(thisPlayer$Player,20,thisPlayer$Age,10) %>% 
+      thisPlayerStats <- .predictPlayerWeighted(thisPlayer$Player) %>% 
         select(Player,Pos,Season,Age,everything())
       
       if (nrow(thisPlayerStats)>0){ # in case thisPlayerStats return an empty data.frame
@@ -208,7 +208,7 @@ write_playersNewPredicted <- function() {
   limitMinutes <- 2*quantile(playersNewPredicted$effMin,.95) # control for possible outliers
   defaultMinutes <- quantile(playersNewPredicted$effMin,.1) # assign low minutes to outliers as they most likely belong to players with very little playing time
   playersNewPredicted2 <- mutate(playersNewPredicted,effMin = ifelse(effMin > limitMinutes, defaultMinutes,effMin))
-  write.csv(playersNewPredicted2, "data/playersNewPredicted_Sep8_18.csv", row.names = FALSE)
+  write.csv(playersNewPredicted2, "data/playersNewPredicted_2020.csv", row.names = FALSE)
 }  
 
 # pre-calculate tsne points for all players and seasons
@@ -987,12 +987,12 @@ write_realSeasonSchedule <- function(){
     team_statsNew <- team_stats %>%
       filter(Season == max(as.character(Season))) %>%
       mutate(W = 0, L = 0, PTS = 0, PTSA = 0, SRS = 0, 
-             Season = paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)) %>%
+             Season = paste0(as.numeric(substr(Season,1,4))+1-seasonOffset,"-",as.numeric(substr(Season,1,4))+2-seasonOffset)) %>%
       distinct(Team, .keep_all=TRUE)
     # same for players
     playersNew <- playersHist %>%
       filter(Season == max(as.character(Season))) %>%
-      mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1,"-",as.numeric(substr(Season,1,4))+2)))
+      mutate(Season = as.factor(paste0(as.numeric(substr(Season,1,4))+1-seasonOffset,"-",as.numeric(substr(Season,1,4))+2-seasonOffset)))
   }
   
   thisSeason <- substr(as.character(playersNew$Season[1]),6,9)
@@ -1076,6 +1076,73 @@ write_gameScores <- function() {
   }
   write.csv(teamPoints, "data/gameScores.csv", row.names = FALSE)
 }
+
+### Scraping box scores from individual games
+write_update_boxscores <- function(latestSeason = 2018){
+  
+  require(tidyverse)
+  require(rvest)
+  require(httr)
+  thisSeason = substr(Sys.Date(),1,4)
+  box_scores <- data.frame()
+  thisSeason <- as.numeric(thisSeason)
+  
+  #franchises <- read.csv("data/franchisesHistory.csv",stringsAsFactors = FALSE) %>%
+  #  distinct(Franchise, .keep_all = TRUE)
+  
+  months <- c("01","02","03","04","05","10","11","12")
+  days <- c(1:31)
+  for (thisYear in c(latestSeason:thisSeason)) {
+    for (thisTeam in franchises$teamCode){
+      for (thisMonth in months) {
+        for (thisDay in days) {
+          url <- paste0("https://www.basketball-reference.com/boxscores/",
+                        thisYear,thisMonth,ifelse(nchar(thisDay)>1,thisDay,paste0("0",thisDay)),"0",thisTeam,
+                        ".html")
+          if (status_code(GET(url)) == 200) { # successful response
+            
+            getOtherTeam <- url %>%
+              read_html() %>%
+              #RCurl::getURL(ssl.verifyhost = 0L, ssl.verifypeer = 0L) %>%
+              html_nodes(xpath ='//*[@id="content"]/div[2]/div[1]/div[1]/strong[1]/a[1]') %>%
+              html_attr("href") %>%
+              substr(8,10)
+            print(paste(thisYear,"-",thisMonth,"-",thisDay,"-",thisTeam,"-",getOtherTeam))
+            
+            getBoxScoreTeam <- url %>%
+              read_html() %>%
+              html_nodes(xpath = paste0('//*[@id="box-',thisTeam,'-game-basic"]')) %>%
+              html_table(fill = TRUE)
+            if (length(getBoxScoreTeam)>0) {
+              getBoxScoreTeam <- getBoxScoreTeam[[1]]
+              names(getBoxScoreTeam) <- getBoxScoreTeam[1,]
+              getBoxScoreTeam <- getBoxScoreTeam[-1,]
+              getBoxScoreTeam <- mutate(getBoxScoreTeam, Tm = thisTeam, Year = thisYear, Month = thisMonth, Day = thisDay)
+            }
+            
+            getBoxScoreOtherTeam <- url %>%
+              read_html() %>%
+              html_nodes(xpath = paste0('//*[@id="box-',getOtherTeam,'-game-basic"]')) %>%
+              html_table(fill = TRUE)
+            if (length(getBoxScoreOtherTeam)>0) {
+              getBoxScoreOtherTeam <- getBoxScoreOtherTeam[[1]]
+              names(getBoxScoreOtherTeam) <- getBoxScoreOtherTeam[1,]
+              getBoxScoreOtherTeam <- getBoxScoreOtherTeam[-1,]
+              getBoxScoreOtherTeam <- mutate(getBoxScoreOtherTeam, Tm = getOtherTeam ,Year = thisYear, Month = thisMonth, Day = thisDay)
+            }
+            if (nrow(box_scores)>0) {
+              box_scores <- bind_rows(box_scores,getBoxScoreTeam,getBoxScoreOtherTeam)
+            } else {
+              box_scores <- bind_rows(getBoxScoreTeam,getBoxScoreOtherTeam)
+            }
+          }
+        }
+      }
+    }
+  }
+  write.csv(box_scores, "data/box_scores.csv", row.names = FALSE)
+}
+
 
 ########## IMAGES ###########
 
