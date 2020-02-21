@@ -1061,6 +1061,33 @@ simulate_n_seasons <- function(num_sim = 1) {
   
 }
 
+.getPlayerExperience <- function(playerName){
+  
+  thisPlayerExp <- filter(playersHist, Player == playerName)
+  
+  if (nrow(thisPlayerExp) == 0) experience <- "R" else experience <- nrow(thisPlayerExp)
+  
+  return(experience)
+}
+
+.getPlayerPosition <- function(playerName){
+  
+  thisPlayerPos <- filter(playersHist, Player == playerName)
+  
+  if (nrow(thisPlayerPos) == 0) position <- " " else position <- thisPlayerPos$Pos[1]
+  
+  return(position)
+}
+
+.getPlayerAge <- function(playerName){
+  
+  thisPlayerAge <- filter(playersHist, Player == playerName) %>%
+    arrange(desc(Age))
+  
+  if (nrow(thisPlayerAge) == 0) age <- 19 else age <- thisPlayerAge$Age[1]
+  
+  return(age)
+}
 # Calculate centroid and other measures for selected cluster of points from tSNE
 .clusterMath <- function(colTeam,colSeason,colPlayer,colAge,colSkill){
   

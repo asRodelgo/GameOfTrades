@@ -7,7 +7,7 @@
 ########## PLAYERS ###########
 
 ## Update the historical players database: playersHist
-write_playersHist <- function() {
+write_playersHist <- function(fromYear, toYear) {
   # Look in basketballreference.com and loop for all seasons
   # Example: http://www.basketball-reference.com/leagues/NBA_2017_per_game.html
   require(httr)
@@ -16,13 +16,14 @@ write_playersHist <- function() {
   thisYear <- substr(Sys.Date(),1,4)
   
   ##### ALL SEASONS ########
-  firstYear <- 1980
+  #fromYear <- 1980
   
   ##### NEW SEASON ########
-  firstYear <- thisYear
+  #fromYear <- as.numeric(thisYear)-seasonOffset
   
+  # read new stats only from fromYear to toYear
   playersHist <- data.frame()
-  for (year in firstYear:thisYear){
+  for (year in fromYear:toYear){
     url <- paste0("http://www.basketball-reference.com/leagues/NBA_",year,"_per_game.html")
     thisSeasonStats <- url %>%
       read_html() %>%
@@ -47,7 +48,8 @@ write_playersHist <- function() {
     playersHistOLD <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE)
     playersHist <- bind_rows(playersHistOLD,playersHist)
   } 
-  playersHist<- filter(playersHist, Season > "1978-1979")
+  playersHist<- filter(playersHist, Season > "1978-1979") %>%
+    distinct(Player, Tm, Season, .keep_all = TRUE)
   write.csv(playersHist, "data/playersHist.csv",row.names = FALSE)  
 }
 

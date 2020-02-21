@@ -211,162 +211,170 @@ playersNewPredicted <- group_by(playersNewPredicted, Player) %>%
          effTRB = effDRB + effORB, effPTS = effFTM + 2*eff2PM + 3*eff3PM) %>%
   mutate_all(function(x) ifelse(is.na(x),0,x)) %>%
   ungroup()
-# Handle rookies
-# History of drafts.
-# writes: rookiesDraftHist.csv
-if (activeWriters) write_rookiesDraftHist()
-# write all rookies (all draft rounds and non drafted)
-# writes: rookies.csv
-if (activeWriters) write_rookies()
-# write college players stats from last season
-# writes: collegePlayers.csv
-if (activeWriters) write_collegePlayers()
-# read rookies and college players (to grab their stats) and merge them. There will be differences in
-# names so I have to manually change those. For now, I won't do anything manually
-# If no manual changes required, simply run this:
-# writes: rookieStats.csv, europePlayers.csv
-if (activeWriters) write_rookieStats_europePlayers()
-rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
-# Once per game stats have been compiled for all rookies (college and international) compute their
-# per-minute stats. Writes: rookieEfficientStats.csv
-if (activeWriters) write_rookieEfficientStats()
-rookieEffStats <- read.csv("data/rookieEfficientStats.csv", stringsAsFactors = FALSE) %>% # write_Rookies_efficientStats in write_rookiesDraft.R
-  select(-c(Season,Age)) %>% mutate(effFGPer = ifelse(effFGPer <= 0.001,FGPer,effFGPer)) # international players don't have this calculated so their per = 0
-#
-# next step current_rosters
-# writes: currentRosters.csv
-if (activeWriters) write_currentRosters_rostersLastSeason()
-current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE) %>%
-  distinct(Player, .keep_all=TRUE)
-# merge current rosters with players calculated efficient stats
-playerSet_a <- merge(playersNewPredicted,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
-playerSet_c <- merge(rookieEffStats,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
-playerSet_a_c <- merge(playerSet_a,playerSet_c, by = "Player") # this should be empty
-playerSet_aPlusc <- bind_rows(playerSet_a,playerSet_c)  %>% distinct(Player,.keep_all=TRUE)
-# players whose names didn't match come from merging playerSetaPlusc and current_rosters
-playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = TRUE)  %>% distinct(Player,.keep_all=TRUE) %>%
-  filter(is.na(Tm.y)) %>% select(Player, Age.x)
 
-# This is the final list of unmatched players who actually played last season:
-# May be more (check out playerSet_b file)
-current_rosters[which(current_rosters$Player == "Gary Payton II"),]$Player <- "Gary Payton 2"
-current_rosters[which(current_rosters$Player == "Glenn Robinson III"),]$Player <- "Glenn Robinson 2"
-current_rosters[which(current_rosters$Player == "Kelly Oubre Jr."),]$Player <- "Kelly Oubre"
-current_rosters[which(current_rosters$Player == "Larry Nance Jr."),]$Player <- "Larry Nance 2"
-current_rosters[which(current_rosters$Player == "Nene"),]$Player <- "Nene Hilario"
-current_rosters[which(current_rosters$Player == "Taurean Prince"),]$Player <- "Taurean Waller-Prince"
-current_rosters[which(current_rosters$Player == "Tim Hardaway Jr."),]$Player <- "Tim Hardaway 2"
-current_rosters[which(current_rosters$Player == "Dennis Smith Jr."),]$Player <- "Dennis Smith"
-current_rosters[which(current_rosters$Player == "Derrick Jones Jr."),]$Player <- "Derrick Jones"
-current_rosters[which(current_rosters$Player == "Frank Mason III"),]$Player <- "Frank Mason"
-# run again sets a to c
-playerSet_a <- merge(playersNewPredicted,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
-playerSet_c <- merge(rookieEffStats,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
-playerSet_a_c <- merge(playerSet_a,playerSet_c, by = "Player") # this should be empty
-playerSet_aPlusc <- bind_rows(playerSet_a,playerSet_c)  %>% distinct(Player,.keep_all=TRUE) %>%
-  select(Player,Pos,Season, Age,Tm=Tm.y,Exp,contains("Per"),contains("eff"))
-# players whose names didn't match come from merging playerSetaPlusc and current_rosters
-playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = TRUE)  %>% distinct(Player,.keep_all=TRUE) %>%
-  filter(is.na(Tm.y)) %>% select(Player, Pos = Pos.x, Age = Age.x, Tm = Tm.x, Exp = Exp.x)
-# now this final set of non matched players correspond to those with a history in the NBA but didn't play in last season
-# Next step is to calculate their predicted stats and add them to the final set
-playerSet_Leftover <- .computePredictedPlayerStats_Leftovers(playerSet_b) # from compute_PredictedLeftovers.R
-playerSet_Leftover <- group_by(playerSet_Leftover, Player) %>%
-  mutate(FGPer = effFG/effFGA, FG3Per = eff3PM/eff3PA, FG2Per = eff2PM/eff2PA,
-         effFGPer = (effFG + .5*eff3PM)/effFGA, FTPer = effFTM/effFTA,
-         effTRB = effDRB + effORB, effPTS = effFTM + 2*eff2PM + 3*eff3PM) %>%
-  mutate_all(function(x) ifelse(is.na(x),0,x)) %>%
-  ungroup()
-
-if (activeWriters) write.csv(playerSet_Leftover,"data/playerPredicted_Leftover.csv", row.names = FALSE)
-playerSet_Leftover <- read.csv("data/playerPredicted_Leftover.csv", stringsAsFactors = FALSE)
-playerSet_Leftover <- mutate(playerSet_Leftover, Season = current_rosters$Season[1]) %>%
-  mutate_at(vars(contains("Per")), function(x) ifelse(x >= 1, mean(x, na.rm=TRUE), x)) # to avoid players with 100% shot accuracy (because they may have taken just very few shots and converted all)
-# Now append together playerSetaPlusc and playerSet_Leftover for the final players stats predicted for new season
-playersNewPredicted_Final <- bind_rows(playerSet_aPlusc,playerSet_Leftover)
-# check this file has same rows as current_rosters
-checkFinalRosters <- merge(playersNewPredicted_Final,current_rosters, by="Player", all.x = TRUE)
-# Write final file:
-if (activeWriters) write.csv(playersNewPredicted_Final, "data/playersNewPredicted_FINAL.csv",row.names = FALSE)
-#
+### Run only before the start of the season  
+      # Handle rookies. 
+      # History of drafts.
+      # writes: rookiesDraftHist.csv
+      if (activeWriters) write_rookiesDraftHist()
+      # write all rookies (all draft rounds and non drafted)
+      # writes: rookies.csv
+      if (activeWriters) write_rookies()
+      # write college players stats from last season
+      # writes: collegePlayers.csv
+      if (activeWriters) write_collegePlayers()
+      # read rookies and college players (to grab their stats) and merge them. There will be differences in
+      # names so I have to manually change those. For now, I won't do anything manually
+      # If no manual changes required, simply run this:
+      # writes: rookieStats.csv, europePlayers.csv
+      if (activeWriters) write_rookieStats_europePlayers()
+      rookieStats <- read.csv("data/rookieStats.csv", stringsAsFactors = FALSE)
+      # Once per game stats have been compiled for all rookies (college and international) compute their
+      # per-minute stats. Writes: rookieEfficientStats.csv
+      if (activeWriters) write_rookieEfficientStats()
+      rookieEffStats <- read.csv("data/rookieEfficientStats.csv", stringsAsFactors = FALSE) %>% # write_Rookies_efficientStats in write_rookiesDraft.R
+        select(-c(Season,Age)) %>% mutate(effFGPer = ifelse(effFGPer <= 0.001,FGPer,effFGPer)) # international players don't have this calculated so their per = 0
+      #
+      #### next step current_rosters
+      # writes: currentRosters.csv
+      if (activeWriters) write_currentRosters_rostersLastSeason()
+      current_rosters <- read.csv("data/currentRosters.csv", stringsAsFactors = FALSE) %>%
+        distinct(Player, .keep_all=TRUE)
+      # merge current rosters with players calculated efficient stats
+      playerSet_a <- merge(playersNewPredicted,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+      playerSet_c <- merge(rookieEffStats,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+      playerSet_a_c <- merge(playerSet_a,playerSet_c, by = "Player") # this should be empty
+      playerSet_aPlusc <- bind_rows(playerSet_a,playerSet_c)  %>% distinct(Player,.keep_all=TRUE)
+      # players whose names didn't match come from merging playerSetaPlusc and current_rosters
+      playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = TRUE)  %>% distinct(Player,.keep_all=TRUE) %>%
+        filter(is.na(Tm.y)) %>% select(Player, Age.x)
+      
+      # This is the final list of unmatched players who actually played last season:
+      # May be more (check out playerSet_b file)
+      current_rosters[which(current_rosters$Player == "Gary Payton II"),]$Player <- "Gary Payton 2"
+      current_rosters[which(current_rosters$Player == "Glenn Robinson III"),]$Player <- "Glenn Robinson 2"
+      current_rosters[which(current_rosters$Player == "Kelly Oubre Jr."),]$Player <- "Kelly Oubre"
+      current_rosters[which(current_rosters$Player == "Larry Nance Jr."),]$Player <- "Larry Nance 2"
+      current_rosters[which(current_rosters$Player == "Nene"),]$Player <- "Nene Hilario"
+      current_rosters[which(current_rosters$Player == "Taurean Prince"),]$Player <- "Taurean Waller-Prince"
+      current_rosters[which(current_rosters$Player == "Tim Hardaway Jr."),]$Player <- "Tim Hardaway 2"
+      current_rosters[which(current_rosters$Player == "Dennis Smith Jr."),]$Player <- "Dennis Smith"
+      current_rosters[which(current_rosters$Player == "Derrick Jones Jr."),]$Player <- "Derrick Jones"
+      current_rosters[which(current_rosters$Player == "Frank Mason III"),]$Player <- "Frank Mason"
+      # run again sets a to c
+      playerSet_a <- merge(playersNewPredicted,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+      playerSet_c <- merge(rookieEffStats,current_rosters, by = "Player") %>% distinct(Player,.keep_all=TRUE)
+      playerSet_a_c <- merge(playerSet_a,playerSet_c, by = "Player") # this should be empty
+      playerSet_aPlusc <- bind_rows(playerSet_a,playerSet_c)  %>% distinct(Player,.keep_all=TRUE) %>%
+        select(Player,Pos,Season, Age,Tm=Tm.y,Exp,contains("Per"),contains("eff"))
+      # players whose names didn't match come from merging playerSetaPlusc and current_rosters
+      playerSet_b <- merge(current_rosters, playerSet_aPlusc, by = "Player", all.x = TRUE)  %>% distinct(Player,.keep_all=TRUE) %>%
+        filter(is.na(Tm.y)) %>% select(Player, Pos = Pos.x, Age = Age.x, Tm = Tm.x, Exp = Exp.x)
+      # now this final set of non matched players correspond to those with a history in the NBA but didn't play in last season
+      # Next step is to calculate their predicted stats and add them to the final set
+      playerSet_Leftover <- .computePredictedPlayerStats_Leftovers(playerSet_b) # from compute_PredictedLeftovers.R
+      playerSet_Leftover <- group_by(playerSet_Leftover, Player) %>%
+        mutate(FGPer = effFG/effFGA, FG3Per = eff3PM/eff3PA, FG2Per = eff2PM/eff2PA,
+               effFGPer = (effFG + .5*eff3PM)/effFGA, FTPer = effFTM/effFTA,
+               effTRB = effDRB + effORB, effPTS = effFTM + 2*eff2PM + 3*eff3PM) %>%
+        mutate_all(function(x) ifelse(is.na(x),0,x)) %>%
+        ungroup()
+      
+      if (activeWriters) write.csv(playerSet_Leftover,"data/playerPredicted_Leftover.csv", row.names = FALSE)
+      playerSet_Leftover <- read.csv("data/playerPredicted_Leftover.csv", stringsAsFactors = FALSE)
+      playerSet_Leftover <- mutate(playerSet_Leftover, Season = current_rosters$Season[1]) %>%
+        mutate_at(vars(contains("Per")), function(x) ifelse(x >= 1, mean(x, na.rm=TRUE), x)) # to avoid players with 100% shot accuracy (because they may have taken just very few shots and converted all)
+      # Now append together playerSetaPlusc and playerSet_Leftover for the final players stats predicted for new season
+      playersNewPredicted_Final <- bind_rows(playerSet_aPlusc,playerSet_Leftover)
+      # check this file has same rows as current_rosters
+      checkFinalRosters <- merge(playersNewPredicted_Final,current_rosters, by="Player", all.x = TRUE)
+      # Write final file:
+      if (activeWriters) write.csv(playersNewPredicted_Final, "data/playersNewPredicted_FINAL.csv",row.names = FALSE)
+      #
+playersNewPredicted_Final <- group_by(playersNewPredicted, Player) %>%
+  mutate(Exp = .getPlayerExperience(Player),
+         Age = .getPlayerAge(Player),
+         Pos = .getPlayerPosition(Player),
+         Season = paste0(thisSeason-seasonOffset,"-",thisSeason-seasonOffset+1)) %>%
+  select(Player, Pos, Season, Age, Tm, Exp, everything())
 #
 ################ Compute powers #################
 #
-#
-# write college players History
-if (activeWriters) write_collegePlayersHist(col_G = 15,num_pages = 30,firstDraft = 1994,lastDraft=as.numeric(thisYear))
-collegePlayersHist <- read.csv("data/collegePlayersHist.csv", stringsAsFactors = FALSE)
-rookiesDraftHist <- read.csv("data/rookiesDraftHist.csv", stringsAsFactors = FALSE)
-#
-# There's a bunch of calculations that I use to estimate certain parameters.
-# They don't need to be run everytime this script is run, just once every year
-# compute % minutes played per player:
-collegeMinutes <- merge(collegePlayersHist,rookiesDraftHist[,c("Player","Pick","Year")], by = "Player") %>%
-  mutate(perMin = MP/(G*40)) %>%
-  group_by(Player) %>%
-  mutate(perMin = mean(perMin, na.rm=TRUE)) %>% # average minutes played per game in ther college years
-  distinct(Player, .keep_all=TRUE) %>%
-  filter(!is.na(perMin))
-# now do the same for NBA players by experience year
-nbaMinutes <- select(playersHist, Player,Season,Age,Tm,G,MP) %>%
-  filter(!(Tm == "TOT")) %>%
-  group_by(Player) %>%
-  filter(Age == min(Age)) %>% # keep players when they were younger (rookie year)
-  group_by(Player,Season) %>%
-  filter(G >= 30) %>% # played at least 30 games
-  mutate(perMin = mean(MP, na.rm=TRUE)/48) %>%
-  distinct(Player, .keep_all=TRUE)
-# put them together
-college2nbaMinutes <- merge(nbaMinutes,collegeMinutes, by = "Player", all.x = TRUE) %>%
-  mutate(minDiff = perMin.y-perMin.x) %>%
-  filter(!is.na(minDiff))
-# Although Rank is different from Draft pick. Let's see this by draft pick for the top 30 picks:
-plot(college2nbaMinutes$Pick,college2nbaMinutes$minDiff)
-draftMinutesInNBA <- arrange(college2nbaMinutes, desc(Pick)) %>%
-  group_by(Pick) %>%
-  summarise(mean(minDiff)) %>%
-  mutate(Pick = as.numeric(Pick)) %>%
-  arrange(Pick)
-barplot(draftMinutesInNBA$`mean(minDiff)`)
-#
-# add Pick round to rookie players:
-rookiesDraft <- filter(rookiesDraftHist, Year >= as.numeric(thisYear)-2) # get last 3 drafts to include rookies like Ben Simmons who didn't play any minute last season
-playersNewPredicted_Final <- merge(playersNewPredicted_Final, rookiesDraft[,c("Player","Pick")], by="Player",all.x=TRUE)
-# For those not in the draft (international players or non-drafted players), average by the
-# average percentage for the tail of the 2nd round picks (51-60)
-col2nbaMinDiff <- mean(draftMinutesInNBA$`mean(minDiff)`[51:nrow(draftMinutesInNBA)])
-playersNewPredicted_Final_adjMin <- mutate(playersNewPredicted_Final,Exp = ifelse(is.na(Exp),"1",Exp),
-                                           Pick = ifelse(is.na(Pick),0,as.numeric(Pick))) %>% # in case Exp is NA for instance returning NBA players
-  group_by(Player) %>%
-  mutate(effMin = ifelse(Pick > 0 & Exp == "R",effMin*(1-draftMinutesInNBA$`mean(minDiff)`[Pick]),
-                         ifelse(Exp == "R",effMin*(1-col2nbaMinDiff),effMin))) %>%
-  distinct(Player, .keep_all = TRUE)
-#
-## Control for outliers (players that for some reason got weird stats)
-outlierPlayers <- .get_PlayerOutliers(playersNewPredicted_Final,6)
-avgPlayer <- select(playersNewPredicted_Final_adjMin, -c(Player,Pos,Age,Tm,Exp)) %>%
-  group_by(Season) %>%
-  summarise_all(mean) %>%
-  ungroup() %>%
-  select(-Season,-Player)
-
-avgPlayers <- data.frame()
-for (o in 1:length(outlierPlayers)){
-  if (nrow(avgPlayers)>0) avgPlayers <- bind_rows(avgPlayer,avgPlayer) else avgPlayers <- avgPlayer
-}
-
-players2avg <- filter(playersNewPredicted_Final_adjMin, Player %in% outlierPlayers) %>%
-  select(Player,Season, Pos,Age,Tm,Exp) %>%
-  bind_cols(avgPlayers)
-
-playersNewPredicted_Final_adjMin <- filter(playersNewPredicted_Final_adjMin, !(Player %in% outlierPlayers)) %>%
-  rbind(players2avg) %>%
-  as.data.frame()
+### RUN ONLY BEFORE THE START OF NEW SEASON
+    # write college players History
+    if (activeWriters) write_collegePlayersHist(col_G = 15,num_pages = 30,firstDraft = 1994,lastDraft=as.numeric(thisYear))
+    collegePlayersHist <- read.csv("data/collegePlayersHist.csv", stringsAsFactors = FALSE)
+    rookiesDraftHist <- read.csv("data/rookiesDraftHist.csv", stringsAsFactors = FALSE)
+    #
+    # There's a bunch of calculations that I use to estimate certain parameters.
+    # They don't need to be run everytime this script is run, just once every year
+    # compute % minutes played per player:
+    collegeMinutes <- merge(collegePlayersHist,rookiesDraftHist[,c("Player","Pick","Year")], by = "Player") %>%
+      mutate(perMin = MP/(G*40)) %>%
+      group_by(Player) %>%
+      mutate(perMin = mean(perMin, na.rm=TRUE)) %>% # average minutes played per game in ther college years
+      distinct(Player, .keep_all=TRUE) %>%
+      filter(!is.na(perMin))
+    # now do the same for NBA players by experience year
+    nbaMinutes <- select(playersHist, Player,Season,Age,Tm,G,MP) %>%
+      filter(!(Tm == "TOT")) %>%
+      group_by(Player) %>%
+      filter(Age == min(Age)) %>% # keep players when they were younger (rookie year)
+      group_by(Player,Season) %>%
+      filter(G >= 30) %>% # played at least 30 games
+      mutate(perMin = mean(MP, na.rm=TRUE)/48) %>%
+      distinct(Player, .keep_all=TRUE)
+    # put them together
+    college2nbaMinutes <- merge(nbaMinutes,collegeMinutes, by = "Player", all.x = TRUE) %>%
+      mutate(minDiff = perMin.y-perMin.x) %>%
+      filter(!is.na(minDiff))
+    # Although Rank is different from Draft pick. Let's see this by draft pick for the top 30 picks:
+    plot(college2nbaMinutes$Pick,college2nbaMinutes$minDiff)
+    draftMinutesInNBA <- arrange(college2nbaMinutes, desc(Pick)) %>%
+      group_by(Pick) %>%
+      summarise(mean(minDiff)) %>%
+      mutate(Pick = as.numeric(Pick)) %>%
+      arrange(Pick)
+    barplot(draftMinutesInNBA$`mean(minDiff)`)
+    #
+    # add Pick round to rookie players:
+    rookiesDraft <- filter(rookiesDraftHist, Year >= as.numeric(thisYear)-2) # get last 3 drafts to include rookies like Ben Simmons who didn't play any minute last season
+    playersNewPredicted_Final <- merge(playersNewPredicted_Final, rookiesDraft[,c("Player","Pick")], by="Player",all.x=TRUE)
+    # For those not in the draft (international players or non-drafted players), average by the
+    # average percentage for the tail of the 2nd round picks (51-60)
+    col2nbaMinDiff <- mean(draftMinutesInNBA$`mean(minDiff)`[51:nrow(draftMinutesInNBA)])
+    playersNewPredicted_Final_adjMin <- mutate(playersNewPredicted_Final,Exp = ifelse(is.na(Exp),"1",Exp),
+                                               Pick = ifelse(is.na(Pick),0,as.numeric(Pick))) %>% # in case Exp is NA for instance returning NBA players
+      group_by(Player) %>%
+      mutate(effMin = ifelse(Pick > 0 & Exp == "R",effMin*(1-draftMinutesInNBA$`mean(minDiff)`[Pick]),
+                             ifelse(Exp == "R",effMin*(1-col2nbaMinDiff),effMin))) %>%
+      distinct(Player, .keep_all = TRUE)
+    #
+    ## Control for outliers (players that for some reason got weird stats)
+    outlierPlayers <- .get_PlayerOutliers(playersNewPredicted_Final,6)
+    avgPlayer <- select(playersNewPredicted_Final_adjMin, -c(Player,Pos,Age,Tm,Exp)) %>%
+      group_by(Season) %>%
+      summarise_all(mean) %>%
+      ungroup() %>%
+      select(-Season,-Player)
+    
+    avgPlayers <- data.frame()
+    for (o in 1:length(outlierPlayers)){
+      if (nrow(avgPlayers)>0) avgPlayers <- bind_rows(avgPlayer,avgPlayer) else avgPlayers <- avgPlayer
+    }
+    
+    players2avg <- filter(playersNewPredicted_Final_adjMin, Player %in% outlierPlayers) %>%
+      select(Player,Season, Pos,Age,Tm,Exp) %>%
+      bind_cols(avgPlayers)
+    
+    playersNewPredicted_Final_adjMin <- filter(playersNewPredicted_Final_adjMin, !(Player %in% outlierPlayers)) %>%
+      rbind(players2avg) %>%
+      as.data.frame()
 
 ### Make sure no percentages are off (FT%, FG%, etc)
-playersNewPredicted_Final_adjMin <- mutate_at(playersNewPredicted_Final_adjMin, 
-                                              vars(contains("Per")), function(x) ifelse(x >=.95, quantile(x,.95), x))
-
+playersNewPredicted_Final_adjMin <- ungroup(playersNewPredicted_Final) %>%
+  mutate_at(vars(contains("Per")), function(x) ifelse(x >=.95, quantile(x,.95), x))
+                                              
 ###
 write.csv(playersNewPredicted_Final_adjMin, "data/playersNewPredicted_Final_adjMin.csv", row.names = FALSE)
 # 3. adjust percent of play time -----------------------------------
@@ -386,11 +394,12 @@ playersNewPredicted_Final_adjMin2 <- .redistributeMinutes(playersNewPredicted_Fi
 playersNewPredicted_Final_adjMin2 <- mutate(playersNewPredicted_Final_adjMin2, effMin = ifelse(effMin < 0, .000001, effMin))
 # The reason to go top_1 = 1.1 is to give more prominence to star players which adjust better when simulating
 # wins in the regular season
-# make sure Season column shows the new season to come and remove Pick column as i don't need it anymore
-playersNewPredicted_Final_adjMin2 <- mutate(playersNewPredicted_Final_adjMin2,
-                                            Season = paste0(thisYear,"-",as.numeric(thisYear)+1)) %>%
-  select(-Pick, -Exp) %>%
-  as.data.frame()
+### RUN ONLY BEFORE START OF NEW SEAON
+      # make sure Season column shows the new season to come and remove Pick column as i don't need it anymore
+      playersNewPredicted_Final_adjMin2 <- mutate(playersNewPredicted_Final_adjMin2,
+                                                  Season = paste0(thisYear,"-",as.numeric(thisYear)+1)) %>%
+        select(-Pick, -Exp) %>%
+        as.data.frame()
 # 4. compute team powers ---------------------------
 # See teams_power.R for details. See if actual effMin matter (double check weighted means)
 # playersNewPredicted_pumped <- mutate(playersNewPredicted_Final_adjMin2, effMin = ifelse(Tm == "UTA",effMin - .002,effMin))
