@@ -813,25 +813,25 @@ renderDataTable(similar())
 ### Similar Players Last 5 Seasons {data-width=350}
 ```{r}
 
-similar_hist <- reactive({
-  similarPlayers_Hist <- data.frame()
-  player_seasons <- filter(tsne_ready_hist, Player == input$playerName) %>%
-    arrange(desc(Season)) %>% select(Season) %>% head(5)
-  for (s in player_seasons$Season) {
-    thisSeason <- .compare10_click(s,input$playerName,data=tsne_ready_hist) %>%
-      top_n(11,-dist) %>% tail(10) %>% mutate(player_season = paste0(Player," (",Season,")")) %>% select(player_season)
-    names(thisSeason) <- c(paste0("In Season: ",s))
-    if (nrow(similarPlayers_Hist) > 0) similarPlayers_Hist <- cbind(similarPlayers_Hist,thisSeason) else similarPlayers_Hist <- thisSeason
-  }
-
-  datatable(similarPlayers_Hist, extensions = 'Scroller', options = list(dom="t",scrollY = 150,scroller = TRUE,initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")
-                                   #, columnDefs = list(list(visible = FALSE, targets = c((ncol(roster)-2):(ncol(roster)-1))))
-                                   )) %>%
-    formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
-
-})
-
-renderDataTable(similar_hist())
+# similar_hist <- reactive({
+#   similarPlayers_Hist <- data.frame()
+#   player_seasons <- filter(tsne_ready_hist, Player == input$playerName) %>%
+#     arrange(desc(Season)) %>% select(Season) %>% head(5)
+#   for (s in player_seasons$Season) {
+#     thisSeason <- .compare10_click(s,input$playerName,data=tsne_ready_hist) %>%
+#       top_n(11,-dist) %>% tail(10) %>% mutate(player_season = paste0(Player," (",Season,")")) %>% select(player_season)
+#     names(thisSeason) <- c(paste0("In Season: ",s))
+#     if (nrow(similarPlayers_Hist) > 0) similarPlayers_Hist <- cbind(similarPlayers_Hist,thisSeason) else similarPlayers_Hist <- thisSeason
+#   }
+# 
+#   datatable(similarPlayers_Hist, extensions = 'Scroller', options = list(dom="t",scrollY = 150,scroller = TRUE,initComplete = JS("function(settings, json) {","$(this.api().table().header()).css({'background-color': '#fff', 'color': '#575859', 'font-size': '10px', 'font-weight': 'bold'});","}")
+#                                    #, columnDefs = list(list(visible = FALSE, targets = c((ncol(roster)-2):(ncol(roster)-1))))
+#                                    )) %>%
+#     formatStyle(0, target = 'row', fontSize = '70%', lineHeight = '70%')
+# 
+# })
+# 
+# renderDataTable(similar_hist())
 
 
 ```
@@ -842,59 +842,7 @@ Row {.tabset .tabset-fade}
 ### Player t-SNE map
 ```{r}
 tsne_predicted <- reactive({
-
-  set.seed(456)
-  playerCluster <- kmeans(values$playersTSNE[, c("x","y")], input$player_num_clusters, nstart = 10, iter.max = 20)
-  tsne_ready2 <- cbind(values$playersTSNE, cluster = playerCluster$cluster)
-
-  tsne_points_filter <- filter(tsne_ready2, Player == input$playerName)
-    #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
-    x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
-    y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
-
-  cluster_representative <- group_by(tsne_ready2, cluster) %>%
-    mutate(x_mean = mean(x), y_mean=mean(y)) %>%
-    mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
-    filter(dist==min(dist)) %>%
-    select(cluster, Player,Season, x,y,dist) %>%
-    ungroup()
-
-  if (nrow(tsne_points_filter) > 0) {
-    ggplot(NULL, aes(x,y)) +
-        geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.5) +
-        geom_point(data=tsne_points_filter,color = "red",size=4) +
-      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),color="grey",size=3, nudge_y = 1) +
-        geom_text(data=tsne_points_filter,aes(label = paste0(Player," (",Season,")")),color="blue",size=3, nudge_y = 1) +
-        theme(legend.key=element_blank(),
-              legend.title=element_blank(),
-              legend.text = element_blank(),
-              legend.position="none",
-              plot.title = element_text(size=9),
-              panel.border = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_blank(),
-              axis.text.y = element_blank(),
-              axis.title.x = element_blank(),
-              axis.title.y = element_blank(),
-              axis.ticks = element_blank())
-  } else {
-    ggplot(NULL, aes(x,y)) +
-        geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.5) +
-      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
-        theme(legend.key=element_blank(),
-              legend.title=element_blank(),
-              legend.text = element_blank(),
-              legend.position="none",
-              plot.title = element_text(size=9),
-              panel.border = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_blank(),
-              axis.text.y = element_blank(),
-              axis.title.x = element_blank(),
-              axis.title.y = element_blank(),
-              axis.ticks = element_blank())
-  }
-
+  plot_tsne_predicted(values$playersTSNE, input$player_num_clusters, input$playerName)
 })
 
 renderPlot(tsne_predicted())
@@ -903,62 +851,62 @@ renderPlot(tsne_predicted())
 ### t-SNE timeline
 ```{r}
 
-tsne_historical <- reactive({
-
-  set.seed(456)
-  playerCluster <- kmeans(tsne_ready_hist[, c("x","y")], input$player_num_clusters, nstart = 10, iter.max = 20)
-  tsne_ready_hist2 <- cbind(tsne_ready_hist, cluster = playerCluster$cluster)
-
-  tsne_points_filter <- filter(tsne_ready_hist2, Player == input$playerName)
-    #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
-    x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
-    y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
-
-  cluster_representative <- group_by(tsne_ready_hist2, cluster) %>%
-    mutate(x_mean = mean(x), y_mean=mean(y)) %>%
-    mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
-    filter(dist==min(dist)) %>%
-    select(cluster, Player,Season, x,y,dist) %>%
-    ungroup()
-
-  if (nrow(tsne_points_filter) > 0) {
-    ggplot(NULL, aes(x,y)) +
-        geom_point(data=tsne_ready_hist2,aes(color = as.factor(cluster)),alpha = 0.2) +
-        geom_jitter(data=tsne_points_filter,color = "red",size=4,width = 1.5, height = 1.5) +
-        geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),color = "grey",size=3, nudge_y = 1) +
-        geom_text(data=tsne_points_filter,aes(label = Season),color="blue",size=3, nudge_y = 1) +
-        theme(legend.key=element_blank(),
-              legend.title=element_blank(),
-              legend.text = element_blank(),
-              legend.position="none",
-              plot.title = element_text(size=9),
-              panel.border = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_blank(),
-              axis.text.y = element_blank(),
-              axis.title.x = element_blank(),
-              axis.title.y = element_blank(),
-              axis.ticks = element_blank())
-  } else {
-    ggplot(NULL, aes(x,y)) +
-      geom_point(data=tsne_ready_hist2,aes(color = as.factor(cluster)),alpha = 0.2) +
-      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
-      theme(legend.key=element_blank(),
-              legend.title=element_blank(),
-              legend.text = element_blank(),
-              legend.position="none",
-              plot.title = element_text(size=9),
-              panel.border = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_blank(),
-              axis.text.y = element_blank(),
-              axis.title.x = element_blank(),
-              axis.title.y = element_blank(),
-              axis.ticks = element_blank())
-  }
-})
-
-renderPlot(tsne_historical())
+# tsne_historical <- reactive({
+# 
+#   set.seed(456)
+#   playerCluster <- kmeans(tsne_ready_hist[, c("x","y")], input$player_num_clusters, nstart = 10, iter.max = 20)
+#   tsne_ready_hist2 <- cbind(tsne_ready_hist, cluster = playerCluster$cluster)
+# 
+#   tsne_points_filter <- filter(tsne_ready_hist2, Player == input$playerName)
+#     #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
+#     x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
+#     y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
+# 
+#   cluster_representative <- group_by(tsne_ready_hist2, cluster) %>%
+#     mutate(x_mean = mean(x), y_mean=mean(y)) %>%
+#     mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
+#     filter(dist==min(dist)) %>%
+#     select(cluster, Player,Season, x,y,dist) %>%
+#     ungroup()
+# 
+#   if (nrow(tsne_points_filter) > 0) {
+#     ggplot(NULL, aes(x,y)) +
+#         geom_point(data=tsne_ready_hist2,aes(color = as.factor(cluster)),alpha = 0.2) +
+#         geom_jitter(data=tsne_points_filter,color = "red",size=4,width = 1.5, height = 1.5) +
+#         geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),color = "grey",size=3, nudge_y = 1) +
+#         geom_text(data=tsne_points_filter,aes(label = Season),color="blue",size=3, nudge_y = 1) +
+#         theme(legend.key=element_blank(),
+#               legend.title=element_blank(),
+#               legend.text = element_blank(),
+#               legend.position="none",
+#               plot.title = element_text(size=9),
+#               panel.border = element_blank(),
+#               panel.background = element_blank(),
+#               axis.text.x = element_blank(),
+#               axis.text.y = element_blank(),
+#               axis.title.x = element_blank(),
+#               axis.title.y = element_blank(),
+#               axis.ticks = element_blank())
+#   } else {
+#     ggplot(NULL, aes(x,y)) +
+#       geom_point(data=tsne_ready_hist2,aes(color = as.factor(cluster)),alpha = 0.2) +
+#       geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
+#       theme(legend.key=element_blank(),
+#               legend.title=element_blank(),
+#               legend.text = element_blank(),
+#               legend.position="none",
+#               plot.title = element_text(size=9),
+#               panel.border = element_blank(),
+#               panel.background = element_blank(),
+#               axis.text.x = element_blank(),
+#               axis.text.y = element_blank(),
+#               axis.title.x = element_blank(),
+#               axis.title.y = element_blank(),
+#               axis.ticks = element_blank())
+#   }
+# })
+# 
+# renderPlot(tsne_historical())
 
 ```
 

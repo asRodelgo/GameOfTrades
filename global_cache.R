@@ -130,4 +130,7 @@ datesRange <- unique(realSeasonSchedule$Date)
 datesRange <- datesRange[which(datesRange>"2018-10-12")]
 standings <- list.load("cache_global/standings.rds")
 games <- read.csv("cache_global/games.csv", stringsAsFactors = FALSE)
+###########
+source("plots_and_tables.R", local = TRUE)
+
 

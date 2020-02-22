@@ -63,6 +63,7 @@ barplot_PlayerStats <- function(playersDatabase, playersRanks, playerName){
   return(p)
 }
 
+# similar_players(playersDashboard, tsne_ready, "LeBron James") 
 similar_players <- function(playersDatabase, playersTSNE, playerName){
   
   similarPlayers <- .compare10_click(thisSeason,playerName,data=playersTSNE) %>%
@@ -85,3 +86,61 @@ similar_players <- function(playersDatabase, playersTSNE, playerName){
   
   return(dt)
 }
+
+# plot_tsne_predicted(tsne_ready, 10, "LeBron James")
+plot_tsne_predicted <- function(playersTSNE, player_num_clusters, playerName){
+  
+  set.seed(456)
+  playerCluster <- kmeans(playersTSNE[, c("x","y")], player_num_clusters, nstart = 10, iter.max = 20)
+  tsne_ready2 <- cbind(playersTSNE, cluster = playerCluster$cluster)
+  
+  tsne_points_filter <- filter(tsne_ready2, Player == playerName)
+  #centroid <- data.frame(x=(mean(tsne_points_filter$x)),y=mean(tsne_points_filter$y))
+  x_limit <- c(min(tsne_points_filter$x)-5,max(tsne_points_filter$x)+10)
+  y_limit <- c(min(tsne_points_filter$y)-5,max(tsne_points_filter$y)+10)
+  
+  cluster_representative <- group_by(tsne_ready2, cluster) %>%
+    mutate(x_mean = mean(x), y_mean=mean(y)) %>%
+    mutate(dist = sqrt((x-x_mean)^2+(y-y_mean)^2)) %>%
+    filter(dist==min(dist)) %>%
+    select(cluster, Player,Season, x,y,dist) %>%
+    ungroup()
+  
+  if (nrow(tsne_points_filter) > 0) {
+    p <- ggplot(NULL, aes(x,y)) +
+      geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.5) +
+      geom_point(data=tsne_points_filter,color = "red",size=4) +
+      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),color="grey",size=3, nudge_y = 1) +
+      geom_text(data=tsne_points_filter,aes(label = paste0(Player," (",Season,")")),color="blue",size=3, nudge_y = 1) +
+      theme(legend.key=element_blank(),
+            legend.title=element_blank(),
+            legend.text = element_blank(),
+            legend.position="none",
+            plot.title = element_text(size=9),
+            panel.border = element_blank(),
+            panel.background = element_blank(),
+            axis.text.x = element_blank(),
+            axis.text.y = element_blank(),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks = element_blank())
+  } else {
+    p <- ggplot(NULL, aes(x,y)) +
+      geom_point(data=tsne_ready2,aes(color = as.factor(cluster)),alpha = 0.5) +
+      geom_text(data = cluster_representative, aes(label = paste0(Player," (",Season,")")),size=3, nudge_y = 1) +
+      theme(legend.key=element_blank(),
+            legend.title=element_blank(),
+            legend.text = element_blank(),
+            legend.position="none",
+            plot.title = element_text(size=9),
+            panel.border = element_blank(),
+            panel.background = element_blank(),
+            axis.text.x = element_blank(),
+            axis.text.y = element_blank(),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks = element_blank())
+  }
+  return(p)
+}
+
