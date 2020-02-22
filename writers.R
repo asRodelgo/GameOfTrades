@@ -326,7 +326,7 @@ write_tsne_points_newSeason <- function() {
   
   require(tsne)
   data_tsne_sample <- read.csv("data/playersNewPredicted_Final_adjMin.csv", stringsAsFactors = FALSE) %>%
-    select_if(is.numeric) %>% select(-Pick)
+    select_if(is.numeric) %>% select(-one_of("Pick"))
   
   if (nrow(data_tsne_sample)>0){
     num_iter <- 600
