@@ -144,15 +144,24 @@ if (activeWriters) {
     repeats = 10)
   
   set.seed(825)
-  glmFit <- train(PTS ~ ., data = training,
-                  method = "glm",
-                  trControl = fitControl)
+  # glmFit <- train(PTS ~ ., data = training,
+  #                 method = "glm",
+  #                 trControl = fitControl)
+  # 
+  # model <- glmFit # pick the model
+  # random forest
+  library(randomForest)
+  rfFit <- train(PTS ~ ., data = training,
+                 method = "rf",
+                 ntree = 10,
+                 trControl = fitControl)
   
-  model <- glmFit # pick the model
+  rfFit$finalModel
+  model <- rfFit
   # save model
   list.save(model, "data/model_Offense_2020.Rdata")
   #
-  ### 3. Model Defense linear regression
+  ### 3. Model Defense
   
   dataToModel3 <- select(dataToModel2, -MP, -PTS, -score_diff)
   dataToModel3 <- mutate(dataToModel3, FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
@@ -183,11 +192,19 @@ if (activeWriters) {
   
   # Linear Regression
   set.seed(825)
-  glmFit <- train(PTSA ~ ., data = training,
-                  method = "glm",
-                  trControl = fitControl)
+  # glmFit <- train(PTSA ~ ., data = training,
+  #                 method = "glm",
+  #                 trControl = fitControl)
+  # 
+  # model <- glmFit # pick the model
+  # random forest
+  rfFit <- train(PTSA ~ ., data = training,
+                 method = "rf",
+                 ntree = 10,
+                 trControl = fitControl)
   
-  model <- glmFit # pick the model
+  rfFit$finalModel
+  model <- rfFit
   # save model
   list.save(model, "data/model_Defense_2020.Rdata")
 }
@@ -304,9 +321,9 @@ points_data_Off <- playersPredictedStats_adjPer %>%
   mutate(points = 40*5*(effFTM + 2*eff2PM + 3*eff3PM)) %>%
   select(Player, points)
 
-predicted_Offense <- data.frame(Player = predict_data_Off$Player,efficient_Off = as.numeric(efficient_Off))
+predicted_Offense <- data.frame(Player = predict_data_Off$Player,Offense = as.numeric(efficient_Off))
 predicted_Offense <- merge(predicted_Offense,points_data_Off, by = "Player") %>%
-  mutate(Offense = (2*points + efficient_Off)/3)
+  mutate(adjOffense = (points + 2*Offense)/3)
 #
 ### Defense
 load("data/model_Defense_2020.Rdata")

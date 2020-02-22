@@ -2278,7 +2278,7 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
   
   predicted_Team_Offense <- data.frame(team_season = predict_Team_Off$team_season,efficient_Off = as.numeric(efficient_Team_Off))
   predicted_Team_Offense <- merge(predicted_Team_Offense,points_Team_Off, by = "team_season") %>%
-    mutate(Offense = (2*points + efficient_Team_Off)/3)
+    mutate(adjOffense = (2*points + efficient_Team_Off)/3)
   
   # Team Defense
   predict_Team_Def <- prepareTeamData %>%
@@ -2288,6 +2288,67 @@ BC_distance <- function(data_tsne = values$playersTSNE,data_Players = values$pla
     rename_all(funs(gsub("3","X3",.))) %>%
     rename_all(funs(gsub("M","",.))) %>%
     select(-AST,-FT,-FTA,-starts_with("X"))
+  
+  predicted_Team_Def <- predict(def_model, newdata = predict_Team_Def)
+  predicted_Team_Defense <- data.frame(team_season = predict_Team_Def$team_season,Defense = as.numeric(predicted_Team_Def))
+  
+  #####
+  team_power <- merge(predicted_Team_Offense,predicted_Team_Defense,by="team_season")
+  
+  team_power <- team_power %>%
+    mutate(teamCode = substr(team_season,1,3),
+           Season = substr(team_season, 5,13)) %>%
+    select(team_season, TEAM_PTS = Offense, TEAM_PTSAG = Defense, TeamCode = teamCode, Season) %>%
+    as.data.frame()
+  
+  team_power$TEAM_PTS <- as.numeric(as.character(team_power$TEAM_PTS))
+  team_power$TEAM_PTSAG <- as.numeric(as.character(team_power$TEAM_PTSAG))
+  
+  return(team_power)
+  
+}
+
+# Put together teams and predicted powers as input to a new regular season
+.teamsPredictedPower_2020 <- function(data = playersNew,  
+                                      off_model = nn_Offense, def_model = nn_Defense) {
+  
+  #playersNewPredicted_Final_adjMinPer2 <- select(playersPredictedStats_adjPer, -contains("Per"), -effFG, -effFGA, -effPTS, -effTRB)
+  prepareTeamData <- .prepareModelOncePredicted(data,"All")
+  
+  # Compute team powers using models
+  # Team Offense
+  predict_Team_Off <- prepareTeamData %>%
+    select(-Age) %>%
+    rename_all(funs(gsub("eff","",.))) %>%
+    rename_all(funs(gsub("2","X2",.))) %>%
+    rename_all(funs(gsub("3","X3",.))) %>%
+    rename_all(funs(gsub("M","",.))) %>%
+    mutate(FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
+           FG3Per = ifelse(X3PA==0,0,X3P/X3PA),
+           FTPer = ifelse(FTA==0,0,FT/FTA),FG2A = X2PA, FG3A = X3PA) %>%
+    select(-FT,-starts_with("X"))
+  
+  efficient_Team_Off <- predict(off_model, newdata = predict_Team_Off)
+  
+  points_Team_Off <- prepareTeamData %>%
+    mutate(points = 48*5*(effFTM + 2*eff2PM + 3*eff3PM)) %>%
+    select(team_season, points)
+  
+  predicted_Team_Offense <- data.frame(team_season = predict_Team_Off$team_season,Offense = as.numeric(efficient_Team_Off))
+  predicted_Team_Offense <- merge(predicted_Team_Offense,points_Team_Off, by = "team_season") %>%
+    mutate(adjOffense = (points + 2*Offense)/3)
+  
+  # Team Defense
+  predict_Team_Def <- prepareTeamData %>%
+    select(-Age) %>%
+    rename_all(funs(gsub("eff","",.))) %>%
+    rename_all(funs(gsub("2","X2",.))) %>%
+    rename_all(funs(gsub("3","X3",.))) %>%
+    rename_all(funs(gsub("M","",.))) %>%
+    mutate(FG2Per = ifelse(X2PA==0,0,X2P/X2PA),
+           FG3Per = ifelse(X3PA==0,0,X3P/X3PA),
+           FTPer = ifelse(FTA==0,0,FT/FTA),FG2A = X2PA, FG3A = X3PA) %>%
+    select(-FT,-starts_with("X"))
   
   predicted_Team_Def <- predict(def_model, newdata = predict_Team_Def)
   predicted_Team_Defense <- data.frame(team_season = predict_Team_Def$team_season,Defense = as.numeric(predicted_Team_Def))

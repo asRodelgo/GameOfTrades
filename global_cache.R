@@ -44,10 +44,10 @@ playersPredictedStats_adjPer <- read.csv("data/playersNewPredicted_Final_adjPer.
 #nn_Offense <- model$finalModel
 #load("data/modelNeuralnet19_PTSA.Rdata")
 #nn_Defense <- model$finalModel
-load("data/model_Offense_2018.Rdata")
+load("data/model_Offense_2020.Rdata")
 model <- x
 nn_Offense <- x$finalModel
-load("data/model_Defense_2018.Rdata")
+load("data/model_Defense_2020.Rdata")
 model <- x
 nn_Defense <- x$finalModel
 
