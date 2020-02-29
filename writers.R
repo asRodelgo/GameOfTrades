@@ -222,24 +222,25 @@ write_tsne_points_All <- function(){
   
   library(doMC) # use parallel processing on this machine through "foreach"
   registerDoMC(2) # As far as I know my MAC works on 2 cores
+  library(Rtsne)
   #data_tsne_sample <- dplyr::sample_n(data_tsne,1000)
-  data_tsne_sample <- filter(data_tsne,Season > "1995-1996")
-  #%in% c("2012-2013","2013-2014","2014-2015","2015-2016"))
-  #"2012-2013","2013-2014","2014-2015",
+  data_tsne <- playersHist %>%
+    group_by(Player,Season) %>%
+    mutate(keep = ifelse(n() > 1, 1, 0)) %>%
+    filter(keep == 0 | Tm == "TOT") %>%
+    ungroup()
   
-  if (nrow(data_tsne)>0){
-    num_iter <- 400
-    max_num_neighbors <- 50
-    set.seed(456) # reproducitility
-    tsne_points <- tsne(data_tsne_sample[,-c(1:5)], 
-                        max_iter=as.numeric(num_iter), 
-                        perplexity=as.numeric(max_num_neighbors), 
-                        epoch=100)
-    #plot(tsne_points)
-  } else {
-    tsne_points <- c()
-  }
-  write.csv(tsne_points, "data/tsne_points_All.csv",row.names = FALSE)
+  data_tsne_sample <- filter(data_tsne,Season > "1980-1981") %>%
+    select_if(is.numeric) %>%
+    select(-contains("."), -c(GS, TRB, PTS,keep)) %>%
+    as.matrix()
+  
+  set.seed(42)
+  tsne_out <- Rtsne(data_tsne_sample, pca=FALSE, check_duplicates = FALSE, 
+                    perplexity=50, theta = 0.5,  max_iter = 800) # Run TSNE
+  
+  plot(tsne_out$Y, asp=1)
+  
   
 }
 
@@ -369,6 +370,20 @@ write_tsne_ready_newSeason <- function(){
   write.csv(tsne_ready, "data/tsne_ready_newSeason.csv", row.names = FALSE)
 }
 
+write_tensorflow_proj_inputs <- function() {
+  
+  playersHist <- read.csv("data/playersHist.csv", stringsAsFactors = FALSE)
+  data <- select_if(playersHist, is.numeric) %>%
+    select(-c(Age,GS,PTS), -contains("."))
+  metadata <- playersHist
+  #metadata <- select_if(playersHist, is.character)
+  
+  write.table(data, "data/ts_data.csv", sep = "\t", row.names = FALSE, col.names = FALSE)
+  write.table(metadata, "data/ts_metadata.csv", sep = "\t", row.names = FALSE)
+
+  #metadata_edited <- read.table("data/metadata-edited.tsv", sep = "\t", stringsAsFactors = FALSE)
+}
+  
 ########## TEAMS ###########
 
 # Write team stats by season. 
